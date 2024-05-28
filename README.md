@@ -10,5 +10,5 @@ openssl req -x509 -nodes -days 36500 -newkey ec:<(openssl ecparam -name prime256
 ## Debug server
 
 ```
-openssl s_server -accept 50000 -cert temp/cert.pem -key temp/key.pem -CAfile cert.pem -cipher AES128-GCM-SHA256 -serverpref -state -debug -status_verbose
+openssl s_server -accept 50000 -cert temp/cert.pem -key temp/key.pem -CAfile temp/cert.pem -cipher AES128-GCM-SHA256 -serverpref -state -debug -status_verbose
 ```

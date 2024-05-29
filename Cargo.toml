@@ -7,3 +7,5 @@ rust-version = "1.78.0"
 [dependencies]
 num-derive = "0.4.2"
 num-traits = "0.2.19"
+p256 = { version = "0.13.2", features = ["ecdh"] }
+rand = "0.8.5"

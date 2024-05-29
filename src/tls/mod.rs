@@ -2,6 +2,7 @@ use crate::Result;
 mod alert;
 mod cipher_suite;
 mod client;
+pub mod crypto;
 mod extension;
 pub mod extension_descriptor;
 mod handshake;
@@ -13,7 +14,7 @@ pub use alert::Alert;
 pub use cipher_suite::CipherSuite;
 pub use client::Client;
 pub use extension::Extension;
-pub use handshake::{ClientHello, Handshake};
+pub use handshake::{ClientHello, Handshake, ServerHello};
 pub(crate) use macro_defs::{impl_from_tls, impl_from_tls_with_selector, impl_to_tls};
 pub use record::TlsRecord;
 pub use util::{

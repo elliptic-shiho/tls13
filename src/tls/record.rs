@@ -1,6 +1,5 @@
 use crate::tls::{
-    impl_from_tls, impl_to_tls, read_tls_vec_as_vector, write_tls_vec_as_vector, Alert, FromTlsVec,
-    Handshake, ToTlsVec,
+    impl_from_tls, impl_to_tls, write_tls_vec_as_vector, Alert, FromTlsVec, Handshake, ToTlsVec,
 };
 use crate::Result;
 
@@ -16,10 +15,10 @@ pub enum ContentType {
 // a direct sum structure of TLSPlaintext / TLSCiphertext / TLSInnerPlaintext
 #[derive(Debug, PartialEq, Eq)]
 pub enum TlsRecord {
-    ChangeCipherSpec(Vec<u8>),
-    Alert(Alert),
-    Handshake(Handshake),
-    ApplicationData(Vec<u8>),
+    ChangeCipherSpec(Vec<u8>, u64),
+    Alert(Alert, u64),
+    Handshake(Handshake, u64),
+    ApplicationData(Vec<u8>, u64),
 }
 
 impl_to_tls! {
@@ -35,7 +34,7 @@ impl_to_tls! {
 
     TlsRecord(self) {
         match self {
-            Self::Handshake(hs) => {
+            Self::Handshake(hs, _) => {
                 let v = hs.to_tls_vec();
                 if v.len() >= 65536 {
                     panic!();
@@ -48,7 +47,7 @@ impl_to_tls! {
                 ]
                 .concat()
             }
-            Self::Alert(al) => {
+            Self::Alert(al, _) => {
                 let v = al.to_tls_vec();
                 [
                     ContentType::Alert.to_tls_vec(), // type
@@ -58,7 +57,7 @@ impl_to_tls! {
                 ]
                 .concat()
             }
-            Self::ChangeCipherSpec(data) => {
+            Self::ChangeCipherSpec(data, _) => {
                 let v = write_tls_vec_as_vector(data, 2);
                 [
                     ContentType::ChangeCipherSpec.to_tls_vec(), // type
@@ -67,7 +66,7 @@ impl_to_tls! {
                     v,                                          // fragment
                 ].concat()
             }
-            Self::ApplicationData(data) => {
+            Self::ApplicationData(data, _) => {
                 let v = write_tls_vec_as_vector(data, 2);
                 [
                     ContentType::ApplicationData.to_tls_vec(), // type
@@ -98,29 +97,31 @@ impl_from_tls! {
             &v[1..],
         ))
     }
+}
 
-    TlsRecord(v) {
+impl TlsRecord {
+    pub fn parse(v: &[u8], seq_num: u64) -> Result<(TlsRecord, &[u8])> {
         let (ctype, v) = ContentType::from_tls_vec(v)?;
         let (_legacy_record_version, v) = u16::from_tls_vec(v)?;
         let (length, v) = u16::from_tls_vec(v)?;
         Ok(match ctype {
             ContentType::Handshake => {
                 let (hs, v) = Handshake::from_tls_vec(v)?;
-                (Self::Handshake(hs), v)
+                (Self::Handshake(hs, seq_num), v)
             }
             ContentType::Alert => {
                 let (al, v) = Alert::from_tls_vec(v)?;
-                (Self::Alert(al), v)
+                (Self::Alert(al, seq_num), v)
             }
             ContentType::ChangeCipherSpec => {
                 let length = length as usize;
                 let (data, v) = (v[..length].to_vec(), &v[length..]);
-                (Self::ChangeCipherSpec(data), v)
+                (Self::ChangeCipherSpec(data, seq_num), v)
             }
             ContentType::ApplicationData => {
                 let length = length as usize;
                 let (encrypted_record, v) = (v[..length].to_vec(), &v[length..]);
-                (Self::ApplicationData(encrypted_record), v)
+                (Self::ApplicationData(encrypted_record, seq_num), v)
             }
             _ => unimplemented!(),
         })

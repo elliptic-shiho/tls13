@@ -11,7 +11,7 @@ pub struct ServerHello {
     legacy_session_id_echo: Vec<u8>,
     pub cipher_suite: CipherSuite,
     legacy_compression_method: u8,
-    extensions: Vec<Extension>,
+    pub extensions: Vec<Extension>,
 }
 
 impl_from_tls! {

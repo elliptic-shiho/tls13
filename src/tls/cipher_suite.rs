@@ -4,7 +4,7 @@ use crate::Result;
 use num_derive::{FromPrimitive, ToPrimitive};
 
 #[allow(non_snake_case, non_camel_case_types)]
-#[derive(FromPrimitive, ToPrimitive, Debug, PartialEq, Eq)]
+#[derive(FromPrimitive, ToPrimitive, Debug, PartialEq, Eq, Clone)]
 #[repr(u16)]
 pub enum CipherSuite {
     TLS_AES_128_GCM_SHA256 = 0x1301,

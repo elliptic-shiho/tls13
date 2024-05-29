@@ -1,24 +1,41 @@
-use crate::tls::{FromTlsVec, Handshake, TlsRecord, ToTlsVec};
+use crate::tls::crypto::TlsKeyManager;
+use crate::tls::{CipherSuite, ClientHello, Extension, Handshake, TlsRecord, ToTlsVec};
 use crate::Result;
+use rand::prelude::*;
 use std::io::prelude::*;
 use std::net::TcpStream;
 
-pub struct Client {
+pub struct Client<T: CryptoRng + RngCore> {
     conn: TcpStream,
+    host: String,
+    keyman: TlsKeyManager<T>,
+    sequence_number: u64,
 }
 
-impl Client {
-    pub fn open(host: &str, port: i32) -> Result<Self> {
+impl<T: CryptoRng + RngCore> Client<T> {
+    pub fn open(host: &str, port: i32, rng: T) -> Result<Self>
+    where
+        T: CryptoRng + RngCore + Clone,
+    {
         let conn = TcpStream::connect(format!("{}:{}", host, port))?;
-        Ok(Self { conn })
+        let keyman = TlsKeyManager::new(Box::new(rng));
+        Ok(Self {
+            conn,
+            host: host.to_string(),
+            keyman,
+            sequence_number: 0,
+        })
     }
-    pub fn send_record(&mut self, record: TlsRecord) -> Result<()> {
+
+    fn send_record(&mut self, record: TlsRecord) -> Result<()> {
         self.conn.write_all(&record.to_tls_vec())?;
         Ok(())
     }
 
-    pub fn send_handshake(&mut self, hs: Handshake) -> Result<()> {
-        self.send_record(TlsRecord::Handshake(hs))
+    fn send_handshake(&mut self, hs: Handshake) -> Result<()> {
+        let ret = self.send_record(TlsRecord::Handshake(hs, self.sequence_number));
+        self.sequence_number += 1;
+        ret
     }
 
     fn recv_raw(&mut self) -> Result<Vec<u8>> {
@@ -33,18 +50,83 @@ impl Client {
                 break;
             }
         }
+
         Ok(res)
     }
 
-    pub fn recv(&mut self) -> Result<Vec<TlsRecord>> {
+    fn recv(&mut self) -> Result<Vec<TlsRecord>> {
         let mut v = self.recv_raw()?;
 
         let mut records = vec![];
         while !v.is_empty() {
-            let (rec, t) = TlsRecord::from_tls_vec(&v)?;
+            let (rec, t) = TlsRecord::parse(&v, self.sequence_number)?;
             records.push(rec);
+            self.sequence_number += 1;
             v = t.to_vec();
         }
         Ok(records)
+    }
+
+    pub fn handshake(&mut self) -> Result<()> {
+        use crate::tls::extension_descriptor::*;
+        let ch = ClientHello::new(
+            self.keyman.gen_client_random(),
+            vec![CipherSuite::TLS_AES_128_GCM_SHA256],
+            vec![
+                Extension::ServerName(ServerNameDescriptor {
+                    server_names: vec![ServerName::HostName(self.host.clone())],
+                }),
+                Extension::SignatureAlgorithms(SignatureAlgorithmsDescriptor {
+                    supported_signature_algorithms: vec![SignatureScheme::ecdsa_secp256r1_sha256],
+                }),
+                Extension::SupportedVersions(SupportedVersionsDescriptor::ClientHello(vec![
+                    0x0304,
+                ])),
+                Extension::SupportedGroups(SupportedGroupsDescriptor {
+                    named_group_list: vec![NamedGroup::secp256r1],
+                }),
+                Extension::KeyShare(KeyShareDescriptor::ClientHello(vec![KeyShareEntry {
+                    group: NamedGroup::secp256r1,
+                    key_exchange: self.keyman.gen_client_pubkey().to_bytes().to_vec(),
+                }])),
+            ],
+        );
+        self.send_handshake(Handshake::ClientHello(ch))?;
+
+        for record in self.recv()? {
+            match record {
+                TlsRecord::Handshake(Handshake::ServerHello(sh), _) => {
+                    self.keyman.set_server_random(sh.random.clone());
+                    self.keyman.set_cipher_suite(sh.cipher_suite.clone());
+                    for ext in &sh.extensions {
+                        if let Extension::KeyShare(desc) = ext {
+                            if let KeyShareDescriptor::ServerHello(entry) = desc {
+                                self.keyman.set_server_pubkey(entry.key_exchange.clone());
+                            } else {
+                                dbg!(&sh);
+                                panic!();
+                            }
+                        }
+                    }
+                }
+                TlsRecord::ChangeCipherSpec(_, _) => {
+                    println!("[+] ChangeCipherSpec");
+                }
+                TlsRecord::ApplicationData(encrypted, seq) => {
+                    let additional_data = [
+                        vec![23u8, 0x03u8, 0x03u8],
+                        (encrypted.len() as u16).to_tls_vec(),
+                    ]
+                    .concat();
+                    dbg!(additional_data);
+                    dbg!(seq);
+                }
+                x => {
+                    dbg!(&x);
+                }
+            }
+        }
+
+        Ok(())
     }
 }

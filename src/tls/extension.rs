@@ -54,20 +54,19 @@ impl_to_tls! {
 impl_from_tls! {
     Extension(v) {
         let (ext_type, v) = u16::from_tls_vec(v)?;
+        let (len, v) = u16::from_tls_vec(v)?;
+        let (extension_data, v) = (&v[..(len as usize)], &v[(len as usize)..]);
         Ok(match ext_type {
             0u16 => {
-                let (_len, v) = u16::from_tls_vec(v)?;
-                let (desc, v) = ServerNameDescriptor::from_tls_vec(v)?;
+                let (desc, _) = ServerNameDescriptor::from_tls_vec(extension_data)?;
                 (Self::ServerName(desc), v)
             }
             13u16 => {
-                let (_len, v) = u16::from_tls_vec(v)?;
-                let (desc, v) = SignatureAlgorithmsDescriptor::from_tls_vec(v)?;
+                let (desc, _) = SignatureAlgorithmsDescriptor::from_tls_vec(extension_data)?;
                 (Self::SignatureAlgorithms(desc), v)
             }
             43u16 => {
-                let (len, v) = u16::from_tls_vec(v)?;
-                let (desc, v) = SupportedVersionsDescriptor::from_tls_vec(&v[..(len as usize)])?;
+                let (desc, _) = SupportedVersionsDescriptor::from_tls_vec(extension_data)?;
                 (Self::SupportedVersions(desc), v)
             }
             _ => unimplemented!(),

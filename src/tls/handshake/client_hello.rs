@@ -35,10 +35,14 @@ impl_from_tls! {
     ClientHello(v) {
         let (legacy_version, v) = u16::from_tls_vec(v)?;
         let (random, v) = (v[..32].to_vec(), &v[32..]);
-        let (legacy_session_id, v): (Vec<u8>, &[u8]) = read_tls_vec_as_vector(v, 1)?;
-        let (cipher_suites, v): (Vec<CipherSuite>, &[u8]) = read_tls_vec_as_vector(v, 2)?;
-        let (legacy_compression_methods, v): (Vec<u8>, &[u8]) = read_tls_vec_as_vector(v, 1)?;
-        let (extensions, v): (Vec<Extension>, &[u8]) = read_tls_vec_as_vector_with_selector(v, 2, &crate::tls::handshake::ExtensionSelector::ClientHello)?;
+        let (legacy_session_id, v) = read_tls_vec_as_vector(v, 1)?;
+        let (cipher_suites, v) = read_tls_vec_as_vector(v, 2)?;
+        let (legacy_compression_methods, v) = read_tls_vec_as_vector(v, 1)?;
+        let (extensions, v) = read_tls_vec_as_vector_with_selector(
+            v,
+            2,
+            &crate::tls::handshake::ExtensionSelector::ClientHello,
+        )?;
         Ok((
             Self {
                 legacy_version,

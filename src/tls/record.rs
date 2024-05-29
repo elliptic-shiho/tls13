@@ -1,4 +1,7 @@
-use crate::tls::{impl_from_tls, impl_to_tls, Alert, FromTlsVec, Handshake, ToTlsVec};
+use crate::tls::{
+    impl_from_tls, impl_to_tls, read_tls_vec_as_vector, write_tls_vec_as_vector, Alert, FromTlsVec,
+    Handshake, ToTlsVec,
+};
 use crate::Result;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -13,7 +16,7 @@ pub enum ContentType {
 // a direct sum structure of TLSPlaintext / TLSCiphertext / TLSInnerPlaintext
 #[derive(Debug, PartialEq, Eq)]
 pub enum TlsRecord {
-    ChangeCipherSpec,
+    ChangeCipherSpec(Vec<u8>),
     Alert(Alert),
     Handshake(Handshake),
     ApplicationData(Vec<u8>),
@@ -55,7 +58,24 @@ impl_to_tls! {
                 ]
                 .concat()
             }
-            _ => unimplemented!(),
+            Self::ChangeCipherSpec(data) => {
+                let v = write_tls_vec_as_vector(data, 2);
+                [
+                    ContentType::ChangeCipherSpec.to_tls_vec(), // type
+                    0x0303u16.to_tls_vec(),                     // legacy_record_version
+                    (v.len() as u16).to_tls_vec(),              // length
+                    v,                                          // fragment
+                ].concat()
+            }
+            Self::ApplicationData(data) => {
+                let v = write_tls_vec_as_vector(data, 2);
+                [
+                    ContentType::ApplicationData.to_tls_vec(), // type
+                    0x0303u16.to_tls_vec(),                    // legacy_record_version
+                    (v.len() as u16).to_tls_vec(),             // length
+                    v,                                         // fragment
+                ].concat()
+            }
         }
     }
 }
@@ -83,7 +103,6 @@ impl_from_tls! {
         let (ctype, v) = ContentType::from_tls_vec(v)?;
         let (_legacy_record_version, v) = u16::from_tls_vec(v)?;
         let (length, v) = u16::from_tls_vec(v)?;
-        dbg!(&ctype);
         Ok(match ctype {
             ContentType::Handshake => {
                 let (hs, v) = Handshake::from_tls_vec(v)?;
@@ -92,6 +111,11 @@ impl_from_tls! {
             ContentType::Alert => {
                 let (al, v) = Alert::from_tls_vec(v)?;
                 (Self::Alert(al), v)
+            }
+            ContentType::ChangeCipherSpec => {
+                let length = length as usize;
+                let (data, v) = (v[..length].to_vec(), &v[length..]);
+                (Self::ChangeCipherSpec(data), v)
             }
             ContentType::ApplicationData => {
                 let length = length as usize;

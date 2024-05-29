@@ -1,4 +1,4 @@
-use crate::tls::{FromByteVec, ToByteVec};
+use crate::tls::{impl_from_tls, impl_to_tls, FromByteVec, ToByteVec};
 use crate::Result;
 
 use num_derive::{FromPrimitive, ToPrimitive};
@@ -14,8 +14,8 @@ pub enum CipherSuite {
     TLS_AES_128_CCM_8_SHA256 = 0x1305,
 }
 
-impl FromByteVec for CipherSuite {
-    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
+impl_from_tls! {
+    CipherSuite(v) {
         let (x, v) = u16::from_tls_vec(v)?;
         Ok((
             num_traits::FromPrimitive::from_u16(x)
@@ -25,8 +25,8 @@ impl FromByteVec for CipherSuite {
     }
 }
 
-impl ToByteVec for CipherSuite {
-    fn to_tls_vec(&self) -> Vec<u8> {
+impl_to_tls! {
+    CipherSuite(self) {
         num_traits::ToPrimitive::to_u16(self).unwrap().to_tls_vec()
     }
 }

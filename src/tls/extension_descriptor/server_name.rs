@@ -1,4 +1,4 @@
-use crate::tls::{FromByteVec, ToByteVec};
+use crate::tls::{impl_from_tls, impl_to_tls, FromByteVec, ToByteVec};
 use crate::Result;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -11,29 +11,25 @@ pub enum ServerName {
     HostName(String),
 }
 
-impl ToByteVec for ServerNameDescriptor {
-    fn to_tls_vec(&self) -> Vec<u8> {
+impl_to_tls! {
+    ServerNameDescriptor(self) {
         self.server_names.to_tls_vec()
     }
-}
 
-impl FromByteVec for ServerNameDescriptor {
-    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
-        let (server_names, v): (Vec<ServerName>, &[u8]) = Vec::from_tls_vec(v)?;
-        Ok((Self { server_names }, v))
-    }
-}
-
-impl ToByteVec for ServerName {
-    fn to_tls_vec(&self) -> Vec<u8> {
+    ServerName(self) {
         match self {
             Self::HostName(name) => [vec![0], name.to_tls_vec()].concat(),
         }
     }
 }
 
-impl FromByteVec for ServerName {
-    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
+impl_from_tls! {
+    ServerNameDescriptor(v) {
+        let (server_names, v): (Vec<ServerName>, &[u8]) = Vec::from_tls_vec(v)?;
+        Ok((Self { server_names }, v))
+    }
+
+    ServerName(v) {
         let (name_type, v) = u8::from_tls_vec(v)?;
         if name_type == 0 {
             // HostName

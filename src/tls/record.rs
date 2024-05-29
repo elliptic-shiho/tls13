@@ -1,4 +1,4 @@
-use crate::tls::{Alert, FromByteVec, Handshake, ToByteVec};
+use crate::tls::{impl_from_tls, impl_to_tls, Alert, FromByteVec, Handshake, ToByteVec};
 use crate::Result;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -19,8 +19,8 @@ pub enum TlsRecord {
     ApplicationData(Vec<u8>),
 }
 
-impl ToByteVec for ContentType {
-    fn to_tls_vec(&self) -> Vec<u8> {
+impl_to_tls! {
+    ContentType(self) {
         vec![match self {
             Self::Invalid => 0,
             Self::ChangeCipherSpec => 20,
@@ -29,30 +29,8 @@ impl ToByteVec for ContentType {
             Self::ApplicationData => 23,
         }]
     }
-}
 
-impl FromByteVec for ContentType {
-    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
-        Ok((
-            match v[0] {
-                0 => Self::Invalid,
-                20 => Self::ChangeCipherSpec,
-                21 => Self::Alert,
-                22 => Self::Handshake,
-                23 => Self::ApplicationData,
-                _ => {
-                    return Err(crate::Error::TlsError(
-                        format!("Invalid Content Type: {}", v[0]).to_string(),
-                    ))
-                }
-            },
-            &v[1..],
-        ))
-    }
-}
-
-impl ToByteVec for TlsRecord {
-    fn to_tls_vec(&self) -> Vec<u8> {
+    TlsRecord(self) {
         match self {
             Self::Handshake(hs) => {
                 let v = hs.to_tls_vec();
@@ -82,8 +60,26 @@ impl ToByteVec for TlsRecord {
     }
 }
 
-impl FromByteVec for TlsRecord {
-    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
+impl_from_tls! {
+    ContentType(v) {
+        Ok((
+            match v[0] {
+                0 => Self::Invalid,
+                20 => Self::ChangeCipherSpec,
+                21 => Self::Alert,
+                22 => Self::Handshake,
+                23 => Self::ApplicationData,
+                _ => {
+                    return Err(crate::Error::TlsError(
+                        format!("Invalid Content Type: {}", v[0]).to_string(),
+                    ))
+                }
+            },
+            &v[1..],
+        ))
+    }
+
+    TlsRecord(v) {
         let (ctype, v) = ContentType::from_tls_vec(v)?;
         let (_legacy_record_version, v) = u16::from_tls_vec(v)?;
         let (length, v) = u16::from_tls_vec(v)?;

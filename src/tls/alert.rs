@@ -1,4 +1,4 @@
-use crate::tls::{FromByteVec, ToByteVec};
+use crate::tls::{impl_from_tls, impl_to_tls, FromByteVec, ToByteVec};
 use crate::Result;
 
 use num_derive::{FromPrimitive, ToPrimitive};
@@ -48,8 +48,8 @@ pub enum AlertDescription {
     NoApplicationProtocol = 120,
 }
 
-impl FromByteVec for AlertLevel {
-    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
+impl_from_tls! {
+    AlertLevel(v) {
         let (x, v) = u8::from_tls_vec(v)?;
         Ok((
             num_traits::FromPrimitive::from_u8(x)
@@ -57,16 +57,8 @@ impl FromByteVec for AlertLevel {
             v,
         ))
     }
-}
 
-impl ToByteVec for AlertLevel {
-    fn to_tls_vec(&self) -> Vec<u8> {
-        num_traits::ToPrimitive::to_u8(self).unwrap().to_tls_vec()
-    }
-}
-
-impl FromByteVec for AlertDescription {
-    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
+    AlertDescription(v) {
         let (x, v) = u8::from_tls_vec(v)?;
         Ok((
             num_traits::FromPrimitive::from_u8(x)
@@ -74,24 +66,24 @@ impl FromByteVec for AlertDescription {
             v,
         ))
     }
-}
 
-impl ToByteVec for AlertDescription {
-    fn to_tls_vec(&self) -> Vec<u8> {
-        num_traits::ToPrimitive::to_u8(self).unwrap().to_tls_vec()
-    }
-}
-
-impl FromByteVec for Alert {
-    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
+    Alert(v) {
         let (level, v) = AlertLevel::from_tls_vec(v)?;
         let (description, v) = AlertDescription::from_tls_vec(v)?;
         Ok((Alert { level, description }, v))
     }
 }
 
-impl ToByteVec for Alert {
-    fn to_tls_vec(&self) -> Vec<u8> {
+impl_to_tls! {
+    AlertLevel(self) {
+        num_traits::ToPrimitive::to_u8(self).unwrap().to_tls_vec()
+    }
+
+    AlertDescription(self) {
+        num_traits::ToPrimitive::to_u8(self).unwrap().to_tls_vec()
+    }
+
+    Alert(self) {
         [self.level.to_tls_vec(), self.description.to_tls_vec()].concat()
     }
 }

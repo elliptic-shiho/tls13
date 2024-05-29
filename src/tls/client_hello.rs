@@ -1,4 +1,4 @@
-use crate::tls::{CipherSuite, Extension, FromByteVec, ToByteVec};
+use crate::tls::{impl_from_tls, impl_to_tls, CipherSuite, Extension, FromByteVec, ToByteVec};
 use crate::Result;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -28,8 +28,8 @@ impl ClientHello {
     }
 }
 
-impl FromByteVec for ClientHello {
-    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
+impl_from_tls! {
+    ClientHello(v) {
         let (legacy_version, v) = u16::from_tls_vec(v)?;
         let (random, v): (Vec<u8>, &[u8]) = Vec::from_tls_vec(v)?;
         let (legacy_session_id, v): (Vec<u8>, &[u8]) = Vec::from_tls_vec(v)?;
@@ -50,8 +50,8 @@ impl FromByteVec for ClientHello {
     }
 }
 
-impl ToByteVec for ClientHello {
-    fn to_tls_vec(&self) -> Vec<u8> {
+impl_to_tls! {
+    ClientHello(self) {
         [
             self.legacy_version.to_tls_vec(),
             self.random.to_tls_vec()[2..].to_vec(),

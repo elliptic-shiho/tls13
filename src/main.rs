@@ -26,6 +26,9 @@ fn main() -> Result<()> {
                     ],
                 },
             ),
+            tls::Extension::SupportedVersions(
+                tls::extension_descriptor::SupportedVersionsDescriptor::ClientHello(vec![0x0304]),
+            ),
         ],
     );
     client.send_handshake(tls::Handshake::ClientHello(ch))?;

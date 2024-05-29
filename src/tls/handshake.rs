@@ -1,4 +1,4 @@
-use crate::tls::{ClientHello, FromByteVec, ToByteVec};
+use crate::tls::{impl_from_tls, impl_to_tls, ClientHello, FromByteVec, ToByteVec};
 use crate::Result;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -17,8 +17,8 @@ pub enum Handshake {
     CertificateStatus,
 }
 
-impl ToByteVec for Handshake {
-    fn to_tls_vec(&self) -> Vec<u8> {
+impl_to_tls! {
+    Handshake(self) {
         match self {
             Self::ClientHello(ch) => {
                 let v = ch.to_tls_vec();
@@ -32,8 +32,8 @@ impl ToByteVec for Handshake {
     }
 }
 
-impl FromByteVec for Handshake {
-    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
+impl_from_tls! {
+    Handshake(v) {
         match v[0] {
             1 => {
                 let (_len, v) = u16::from_tls_vec(&v[1..])?;

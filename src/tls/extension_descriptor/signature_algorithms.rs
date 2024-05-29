@@ -1,4 +1,4 @@
-use crate::tls::{FromByteVec, ToByteVec};
+use crate::tls::{impl_from_tls, impl_to_tls, FromByteVec, ToByteVec};
 use crate::Result;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -28,27 +28,12 @@ pub enum SignatureScheme {
     private_use(u16),
 }
 
-impl ToByteVec for SignatureAlgorithmsDescriptor {
-    fn to_tls_vec(&self) -> Vec<u8> {
+impl_to_tls! {
+    SignatureAlgorithmsDescriptor(self) {
         self.supported_signature_algorithms.to_tls_vec()
     }
-}
 
-impl FromByteVec for SignatureAlgorithmsDescriptor {
-    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
-        let (supported_signature_algorithms, v): (Vec<SignatureScheme>, &[u8]) =
-            Vec::from_tls_vec(v)?;
-        Ok((
-            SignatureAlgorithmsDescriptor {
-                supported_signature_algorithms,
-            },
-            v,
-        ))
-    }
-}
-
-impl ToByteVec for SignatureScheme {
-    fn to_tls_vec(&self) -> Vec<u8> {
+    SignatureScheme(self) {
         match self {
             Self::rsa_pkcs1_sha256 => 0x0401,
             Self::rsa_pkcs1_sha384 => 0x0501,
@@ -72,8 +57,19 @@ impl ToByteVec for SignatureScheme {
     }
 }
 
-impl FromByteVec for SignatureScheme {
-    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
+impl_from_tls! {
+    SignatureAlgorithmsDescriptor(v) {
+        let (supported_signature_algorithms, v): (Vec<SignatureScheme>, &[u8]) =
+            Vec::from_tls_vec(v)?;
+        Ok((
+            SignatureAlgorithmsDescriptor {
+                supported_signature_algorithms,
+            },
+            v,
+        ))
+    }
+
+    SignatureScheme(v) {
         let res = match (v[0], v[1]) {
             (0x04, 0x01) => Self::rsa_pkcs1_sha256,
             (0x05, 0x01) => Self::rsa_pkcs1_sha384,

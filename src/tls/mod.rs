@@ -26,50 +26,58 @@ pub trait FromByteVec {
         Self: Sized;
 }
 
-impl ToByteVec for u8 {
-    fn to_tls_vec(&self) -> Vec<u8> {
+#[macro_export]
+macro_rules! impl_to_tls {
+    ($($name:ident ($sel: ident) $bl:block)*) => {
+        $(impl ToByteVec for $name {
+            fn to_tls_vec(&$sel) -> Vec<u8>
+                $bl
+        })*
+    }
+}
+
+#[macro_export]
+macro_rules! impl_from_tls {
+    ($($name:ident ($var: ident) $bl:block)*) => {
+        $(impl FromByteVec for $name {
+            fn from_tls_vec($var: &[u8]) -> Result<($name, &[u8])>
+                $bl
+        })*
+    }
+}
+
+impl_to_tls! {
+    u8(self) {
         vec![*self]
     }
-}
 
-impl FromByteVec for u8 {
-    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
-        Ok((v[0], &v[1..]))
-    }
-}
-
-impl ToByteVec for u16 {
-    fn to_tls_vec(&self) -> Vec<u8> {
+    u16(self) {
         self.to_be_bytes().to_vec()
     }
-}
 
-impl FromByteVec for u16 {
-    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
-        Ok((Self::from_be_bytes([v[0], v[1]]), &v[2..]))
-    }
-}
-
-impl ToByteVec for u32 {
-    fn to_tls_vec(&self) -> Vec<u8> {
+    u32(self) {
         self.to_be_bytes().to_vec()
     }
-}
 
-impl FromByteVec for u32 {
-    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
-        Ok((Self::from_be_bytes([v[0], v[1], v[2], v[3]]), &v[4..]))
-    }
-}
-
-impl ToByteVec for String {
-    fn to_tls_vec(&self) -> Vec<u8> {
+    String(self) {
         self.as_bytes().to_vec().to_tls_vec()
     }
 }
 
-impl FromByteVec for String {
-    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
+impl_from_tls! {
+    u8(v) {
+        Ok((v[0], &v[1..]))
+    }
+
+    u16(v) {
+        Ok((Self::from_be_bytes([v[0], v[1]]), &v[2..]))
+    }
+
+    u32(v) {
+        Ok((Self::from_be_bytes([v[0], v[1], v[2], v[3]]), &v[4..]))
+    }
+
+    String(v) {
         let (b, v): (Vec<u8>, &[u8]) = Vec::from_tls_vec(v)?;
         Ok((
             String::from_utf8(b).expect("Invalid String specified at String::from_tls_vec"),
@@ -112,3 +120,6 @@ where
         Ok((res, v))
     }
 }
+
+pub(crate) use impl_from_tls;
+pub(crate) use impl_to_tls;

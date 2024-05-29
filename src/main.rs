@@ -13,13 +13,20 @@ fn main() -> Result<()> {
             tls::CipherSuite::TLS_AES_128_GCM_SHA256,
             tls::CipherSuite::TLS_AES_256_GCM_SHA384,
         ],
-        vec![tls::Extension::ServerName(
-            tls::extension_descriptor::ServerNameDescriptor {
+        vec![
+            tls::Extension::ServerName(tls::extension_descriptor::ServerNameDescriptor {
                 server_names: vec![tls::extension_descriptor::ServerName::HostName(
                     "localhost".to_string(),
                 )],
-            },
-        )],
+            }),
+            tls::Extension::SignatureAlgorithms(
+                tls::extension_descriptor::SignatureAlgorithmsDescriptor {
+                    supported_signature_algorithms: vec![
+                        tls::extension_descriptor::SignatureScheme::rsa_pkcs1_sha256,
+                    ],
+                },
+            ),
+        ],
     );
     client.send_handshake(tls::Handshake::ClientHello(ch))?;
     dbg!(client.recv()?);

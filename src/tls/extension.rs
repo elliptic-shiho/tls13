@@ -1,4 +1,4 @@
-use crate::tls::extension_descriptor::ServerNameDescriptor;
+use crate::tls::extension_descriptor::{ServerNameDescriptor, SignatureAlgorithmsDescriptor};
 use crate::tls::{FromByteVec, ToByteVec};
 use crate::Result;
 
@@ -8,7 +8,7 @@ pub enum Extension {
     MaxFragmentLength,
     StatusRequest,
     SupportedGroups,
-    SignatureAlgorithms,
+    SignatureAlgorithms(SignatureAlgorithmsDescriptor),
     UseStrp,
     Heartbeat,
     ApplicationLayerProtocolNegotiation,
@@ -36,13 +36,30 @@ impl ToByteVec for Extension {
                 let v = desc.to_tls_vec();
                 [0u16.to_tls_vec(), (v.len() as u16).to_tls_vec(), v].concat()
             }
+            Self::SignatureAlgorithms(desc) => {
+                let v = desc.to_tls_vec();
+                [13u16.to_tls_vec(), (v.len() as u16).to_tls_vec(), v].concat()
+            }
             _ => unimplemented!(),
         }
     }
 }
 
 impl FromByteVec for Extension {
-    fn from_tls_vec(_v: &[u8]) -> Result<(Self, &[u8])> {
-        unimplemented!();
+    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
+        let (ext_type, v) = u16::from_tls_vec(v)?;
+        Ok(match ext_type {
+            0u16 => {
+                let (_len, v) = u16::from_tls_vec(v)?;
+                let (desc, v) = ServerNameDescriptor::from_tls_vec(v)?;
+                (Self::ServerName(desc), v)
+            }
+            13u16 => {
+                let (_len, v) = u16::from_tls_vec(v)?;
+                let (desc, v) = SignatureAlgorithmsDescriptor::from_tls_vec(v)?;
+                (Self::SignatureAlgorithms(desc), v)
+            }
+            _ => unimplemented!(),
+        })
     }
 }

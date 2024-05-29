@@ -1,5 +1,6 @@
 use crate::tls::extension_descriptor::{
-    ServerNameDescriptor, SignatureAlgorithmsDescriptor, SupportedVersionsDescriptor,
+    ServerNameDescriptor, SignatureAlgorithmsDescriptor, SupportedGroupsDescriptor,
+    SupportedVersionsDescriptor,
 };
 use crate::tls::{impl_from_tls, impl_to_tls, FromByteVec, ToByteVec};
 use crate::Result;
@@ -9,7 +10,7 @@ pub enum Extension {
     ServerName(ServerNameDescriptor),
     MaxFragmentLength,
     StatusRequest,
-    SupportedGroups,
+    SupportedGroups(SupportedGroupsDescriptor),
     SignatureAlgorithms(SignatureAlgorithmsDescriptor),
     UseStrp,
     Heartbeat,
@@ -46,6 +47,10 @@ impl_to_tls! {
                 let v = desc.to_tls_vec();
                 [43u16.to_tls_vec(), (v.len() as u16).to_tls_vec(), v].concat()
             }
+            Self::SupportedGroups(desc) => {
+                let v = desc.to_tls_vec();
+                [10u16.to_tls_vec(), (v.len() as u16).to_tls_vec(), v].concat()
+            }
             _ => unimplemented!(),
         }
     }
@@ -68,6 +73,10 @@ impl_from_tls! {
             43u16 => {
                 let (desc, _) = SupportedVersionsDescriptor::from_tls_vec(extension_data)?;
                 (Self::SupportedVersions(desc), v)
+            }
+            10u16 => {
+                let (desc, _) = SupportedGroupsDescriptor::from_tls_vec(extension_data)?;
+                (Self::SupportedGroups(desc), v)
             }
             _ => unimplemented!(),
         })

@@ -29,6 +29,9 @@ fn main() -> Result<()> {
             tls::Extension::SupportedVersions(
                 tls::extension_descriptor::SupportedVersionsDescriptor::ClientHello(vec![0x0304]),
             ),
+            tls::Extension::SupportedGroups(tls::extension_descriptor::SupportedGroupsDescriptor {
+                named_group_list: vec![tls::extension_descriptor::NamedGroup::secp256r1],
+            }),
         ],
     );
     client.send_handshake(tls::Handshake::ClientHello(ch))?;

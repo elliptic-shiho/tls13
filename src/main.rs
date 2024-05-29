@@ -3,12 +3,10 @@ mod tls_error;
 
 pub use crate::tls_error::Error;
 
-use tls::ToByteVec;
-
 type Result<T> = std::result::Result<T, Error>;
 
 fn main() -> Result<()> {
-    let client = tls::Client::open("0.0.0.0", 50000)?;
+    let mut client = tls::Client::open("0.0.0.0", 50000)?;
     let ch = tls::ClientHello::new(
         vec![0; 32],
         vec![
@@ -23,6 +21,7 @@ fn main() -> Result<()> {
             },
         )],
     );
-    dbg!(ch.to_tls_vec());
+    client.send_handshake(tls::Handshake::ClientHello(ch))?;
+    dbg!(client.recv()?);
     Ok(())
 }

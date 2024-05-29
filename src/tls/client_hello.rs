@@ -54,10 +54,10 @@ impl ToByteVec for ClientHello {
     fn to_tls_vec(&self) -> Vec<u8> {
         [
             self.legacy_version.to_tls_vec(),
-            self.random.to_tls_vec(),
-            self.legacy_session_id.to_tls_vec(),
+            self.random.to_tls_vec()[2..].to_vec(),
+            self.legacy_session_id.to_tls_vec()[1..].to_vec(),
             self.cipher_suites.to_tls_vec(),
-            self.legacy_compression_methods.to_tls_vec(),
+            self.legacy_compression_methods.to_tls_vec()[1..].to_vec(),
             self.extensions.to_tls_vec(),
         ]
         .concat()

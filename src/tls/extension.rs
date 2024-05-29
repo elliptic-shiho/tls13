@@ -32,7 +32,10 @@ pub enum Extension {
 impl ToByteVec for Extension {
     fn to_tls_vec(&self) -> Vec<u8> {
         match self {
-            Self::ServerName(desc) => [0u16.to_tls_vec(), desc.to_tls_vec()].concat(),
+            Self::ServerName(desc) => {
+                let v = desc.to_tls_vec();
+                [0u16.to_tls_vec(), (v.len() as u16).to_tls_vec(), v].concat()
+            }
             _ => unimplemented!(),
         }
     }

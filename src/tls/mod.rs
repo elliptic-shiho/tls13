@@ -4,11 +4,15 @@ mod client;
 mod client_hello;
 mod extension;
 pub mod extension_descriptor;
+mod handshake;
+mod record;
 
 pub use cipher_suite::CipherSuite;
 pub use client::Client;
 pub use client_hello::ClientHello;
 pub use extension::Extension;
+pub use handshake::Handshake;
+pub use record::TlsRecord;
 
 pub trait ToByteVec {
     fn to_tls_vec(&self) -> Vec<u8>;
@@ -77,15 +81,12 @@ where
     T: ToByteVec,
 {
     fn to_tls_vec(&self) -> Vec<u8> {
-        if self.len() >= 16384 {
-            panic!();
-        }
         let mut ret = vec![];
-        ret.push((self.len() as u16).to_tls_vec());
         for elem in self {
             ret.push(elem.to_tls_vec());
         }
-        ret.concat()
+        let ret = ret.concat();
+        [(ret.len() as u16).to_tls_vec(), ret].concat()
     }
 }
 

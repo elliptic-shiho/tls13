@@ -1,4 +1,4 @@
-use crate::tls::{impl_from_tls, impl_to_tls, FromByteVec, ToByteVec};
+use crate::tls::{impl_from_tls, impl_to_tls, FromTlsVec, ToTlsVec};
 use crate::Result;
 
 use num_derive::{FromPrimitive, ToPrimitive};

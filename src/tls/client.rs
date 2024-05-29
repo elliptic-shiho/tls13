@@ -1,4 +1,4 @@
-use crate::tls::{FromByteVec, Handshake, TlsRecord, ToByteVec};
+use crate::tls::{FromTlsVec, Handshake, TlsRecord, ToTlsVec};
 use crate::Result;
 use std::io::prelude::*;
 use std::net::TcpStream;

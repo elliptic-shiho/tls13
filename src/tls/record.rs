@@ -1,4 +1,4 @@
-use crate::tls::{impl_from_tls, impl_to_tls, Alert, FromByteVec, Handshake, ToByteVec};
+use crate::tls::{impl_from_tls, impl_to_tls, Alert, FromTlsVec, Handshake, ToTlsVec};
 use crate::Result;
 
 #[derive(Debug, PartialEq, Eq)]

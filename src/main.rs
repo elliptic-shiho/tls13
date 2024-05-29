@@ -32,6 +32,9 @@ fn main() -> Result<()> {
             tls::Extension::SupportedGroups(tls::extension_descriptor::SupportedGroupsDescriptor {
                 named_group_list: vec![tls::extension_descriptor::NamedGroup::secp256r1],
             }),
+            tls::Extension::KeyShare(tls::extension_descriptor::KeyShareDescriptor::ClientHello(
+                vec![],
+            )),
         ],
     );
     client.send_handshake(tls::Handshake::ClientHello(ch))?;

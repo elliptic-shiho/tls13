@@ -16,12 +16,18 @@ pub use extension::Extension;
 pub use handshake::Handshake;
 pub use record::TlsRecord;
 
-pub trait ToByteVec {
+pub trait ToTlsVec {
     fn to_tls_vec(&self) -> Vec<u8>;
 }
 
-pub trait FromByteVec {
+pub trait FromTlsVec {
     fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])>
+    where
+        Self: Sized;
+}
+
+pub trait FromTlsVecWithSelector<T> {
+    fn from_tls_vec<'a>(v: &'a [u8], selector: &T) -> Result<(Self, &'a [u8])>
     where
         Self: Sized;
 }
@@ -29,7 +35,7 @@ pub trait FromByteVec {
 #[macro_export]
 macro_rules! impl_to_tls {
     ($($name:ident ($sel: ident) $bl:block)*) => {
-        $(impl ToByteVec for $name {
+        $(impl ToTlsVec for $name {
             fn to_tls_vec(&$sel) -> Vec<u8>
                 $bl
         })*
@@ -39,8 +45,18 @@ macro_rules! impl_to_tls {
 #[macro_export]
 macro_rules! impl_from_tls {
     ($($name:ident ($var: ident) $bl:block)*) => {
-        $(impl FromByteVec for $name {
+        $(impl FromTlsVec for $name {
             fn from_tls_vec($var: &[u8]) -> Result<($name, &[u8])>
+                $bl
+        })*
+    }
+}
+
+#[macro_export]
+macro_rules! impl_from_tls_with_selector {
+    ($($name:ident <$type:ty>($var: ident, $selector: ident) $bl:block)*) => {
+        $(impl FromTlsVecWithSelector<$type> for $name {
+            fn from_tls_vec<'a>($var: &'a [u8], $selector: &$type) -> Result<($name, &'a [u8])>
                 $bl
         })*
     }
@@ -58,10 +74,6 @@ impl_to_tls! {
     u32(self) {
         self.to_be_bytes().to_vec()
     }
-
-    String(self) {
-        self.as_bytes().to_vec().to_tls_vec()
-    }
 }
 
 impl_from_tls! {
@@ -76,50 +88,84 @@ impl_from_tls! {
     u32(v) {
         Ok((Self::from_be_bytes([v[0], v[1], v[2], v[3]]), &v[4..]))
     }
-
-    String(v) {
-        let (b, v): (Vec<u8>, &[u8]) = Vec::from_tls_vec(v)?;
-        Ok((
-            String::from_utf8(b).expect("Invalid String specified at String::from_tls_vec"),
-            v,
-        ))
-    }
 }
 
-impl<T> ToByteVec for Vec<T>
+pub fn read_tls_vec_as_vector<T>(v: &[u8], header_size: usize) -> Result<(Vec<T>, &[u8])>
 where
-    T: ToByteVec,
+    T: FromTlsVec,
 {
-    fn to_tls_vec(&self) -> Vec<u8> {
-        let mut ret = vec![];
-        for elem in self {
-            ret.push(elem.to_tls_vec());
+    let len = match header_size {
+        1 => v[0] as usize,
+        2 => u16::from_be_bytes([v[0], v[1]]) as usize,
+        3 => u32::from_be_bytes([0, v[0], v[1], v[2]]) as usize,
+        4 => u32::from_be_bytes([v[0], v[1], v[2], v[3]]) as usize,
+        _ => {
+            return Err(crate::Error::TlsError(
+                format!("Invalid length specified: {}", header_size).to_string(),
+            ))
         }
-        let ret = ret.concat();
-        [(ret.len() as u16).to_tls_vec(), ret].concat()
+    };
+
+    let mut v = &v[header_size..];
+    let mut read_len = 0;
+    let mut res = vec![];
+    while read_len < len {
+        let (elem, t) = T::from_tls_vec(v)?;
+        res.push(elem);
+        read_len += v.len() - t.len();
+        v = t;
     }
+    Ok((res, v))
 }
 
-impl<T> FromByteVec for Vec<T>
+pub fn read_tls_vec_as_vector_with_selector<'a, T, S>(
+    v: &'a [u8],
+    header_size: usize,
+    selector: &S,
+) -> Result<(Vec<T>, &'a [u8])>
 where
-    T: FromByteVec,
+    T: FromTlsVecWithSelector<S>,
 {
-    fn from_tls_vec(_v: &[u8]) -> Result<(Self, &[u8])> {
-        let mut v = _v;
-        let len = u16::from_be_bytes([v[0], v[1]]);
-
-        let mut read_len = 0;
-        let mut res = vec![];
-        while read_len < len {
-            let (elem, t) = T::from_tls_vec(v)?;
-            res.push(elem);
-            read_len += (v.len() - t.len()) as u16;
-            v = t;
+    let len = match header_size {
+        1 => v[0] as usize,
+        2 => u16::from_be_bytes([v[0], v[1]]) as usize,
+        3 => u32::from_be_bytes([0, v[0], v[1], v[2]]) as usize,
+        4 => u32::from_be_bytes([v[0], v[1], v[2], v[3]]) as usize,
+        _ => {
+            return Err(crate::Error::TlsError(
+                format!("Invalid length specified: {}", header_size).to_string(),
+            ))
         }
+    };
 
-        Ok((res, v))
+    let mut v = &v[header_size..];
+    let mut read_len = 0;
+    let mut res = vec![];
+    while read_len < len {
+        let (elem, t) = T::from_tls_vec(v, selector)?;
+        res.push(elem);
+        read_len += v.len() - t.len();
+        v = t;
     }
+    Ok((res, v))
+}
+
+pub fn write_tls_vec_as_vector<T>(vec: &[T], header_size: usize) -> Vec<u8>
+where
+    T: ToTlsVec,
+{
+    if header_size > 4 {
+        panic!("Invalid length specified");
+    }
+    let mut ret = vec![];
+    for elem in vec {
+        ret.push(elem.to_tls_vec());
+    }
+    let ret = ret.concat();
+
+    [&(ret.len() as u32).to_tls_vec()[(4 - header_size)..], &ret].concat()
 }
 
 pub(crate) use impl_from_tls;
+pub(crate) use impl_from_tls_with_selector;
 pub(crate) use impl_to_tls;

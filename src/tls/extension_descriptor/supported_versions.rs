@@ -1,4 +1,8 @@
-use crate::tls::{impl_from_tls, impl_to_tls, FromByteVec, ToByteVec};
+use crate::tls::handshake::ExtensionSelector;
+use crate::tls::{
+    impl_from_tls_with_selector, impl_to_tls, read_tls_vec_as_vector, write_tls_vec_as_vector,
+    FromTlsVec, FromTlsVecWithSelector, ToTlsVec,
+};
 use crate::Result;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -10,22 +14,24 @@ pub enum SupportedVersionsDescriptor {
 impl_to_tls! {
     SupportedVersionsDescriptor(self) {
         match self {
-            Self::ClientHello(v) => v.to_tls_vec()[1..].to_vec(),
+            Self::ClientHello(v) => write_tls_vec_as_vector(v, 1),
             Self::ServerHello(version) => version.to_tls_vec()
         }
     }
 }
 
-impl_from_tls! {
-    SupportedVersionsDescriptor(v) {
-        if v.len() > 2 {
-            // ClientHello's supported_version field is longer than 4 bytes
-            // size(u16) + version[0](u16) + ...
-            let (x, v): (Vec<u16>, &[u8]) = Vec::from_tls_vec(v)?;
-            Ok((Self::ClientHello(x), v))
-        } else {
-            let (x, v) = u16::from_tls_vec(v)?;
-            Ok((Self::ServerHello(x), v))
-        }
+impl_from_tls_with_selector! {
+    SupportedVersionsDescriptor<ExtensionSelector>(v, selector) {
+        Ok(match selector {
+            ExtensionSelector::ClientHello => {
+                let (x, v): (Vec<u16>, &[u8]) = read_tls_vec_as_vector(v, 1)?;
+                (Self::ClientHello(x), v)
+            }
+            ExtensionSelector::ServerHello => {
+                let (x, v) = u16::from_tls_vec(v)?;
+                (Self::ServerHello(x), v)
+            }
+            _ => unreachable!()
+        })
     }
 }

@@ -1,4 +1,7 @@
-use crate::tls::{impl_from_tls, impl_to_tls, FromByteVec, ToByteVec};
+use crate::tls::{
+    impl_from_tls, impl_to_tls, read_tls_vec_as_vector, write_tls_vec_as_vector, FromTlsVec,
+    ToTlsVec,
+};
 use crate::Result;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -30,7 +33,7 @@ pub enum SignatureScheme {
 
 impl_to_tls! {
     SignatureAlgorithmsDescriptor(self) {
-        self.supported_signature_algorithms.to_tls_vec()
+        write_tls_vec_as_vector(&self.supported_signature_algorithms, 2)
     }
 
     SignatureScheme(self) {
@@ -60,7 +63,7 @@ impl_to_tls! {
 impl_from_tls! {
     SignatureAlgorithmsDescriptor(v) {
         let (supported_signature_algorithms, v): (Vec<SignatureScheme>, &[u8]) =
-            Vec::from_tls_vec(v)?;
+            read_tls_vec_as_vector(v, 2)?;
         Ok((
             SignatureAlgorithmsDescriptor {
                 supported_signature_algorithms,

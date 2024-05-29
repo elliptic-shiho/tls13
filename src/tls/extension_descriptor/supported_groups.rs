@@ -1,4 +1,7 @@
-use crate::tls::{impl_from_tls, impl_to_tls, FromByteVec, ToByteVec};
+use crate::tls::{
+    impl_from_tls, impl_to_tls, read_tls_vec_as_vector, write_tls_vec_as_vector, FromTlsVec,
+    ToTlsVec,
+};
 use crate::Result;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -25,7 +28,7 @@ pub struct SupportedGroupsDescriptor {
 
 impl_to_tls! {
     SupportedGroupsDescriptor(self) {
-        self.named_group_list.to_tls_vec()
+        write_tls_vec_as_vector(&self.named_group_list, 2)
     }
 
     NamedGroup(self) {
@@ -48,15 +51,15 @@ impl_to_tls! {
 
 impl_from_tls! {
     SupportedGroupsDescriptor(v) {
-        let (named_group_list, v) = Vec::from_tls_vec(v)?;
+        let (named_group_list, v) = read_tls_vec_as_vector(v, 2)?;
         Ok((Self { named_group_list }, v))
     }
 
     NamedGroup(v) {
         let (x, v) = u16::from_tls_vec(v)?;
-        Ok((if 0x01fc <= x && x <= 0x01ff {
+        Ok((if (0x01fcu16..0x01ffu16).contains(&x) {
             Self::ffdhe_private_use(x)
-        } else if 0xfe00 <= x && x <= 0xfeff {
+        } else if (0xfe00u16..0xfeffu16).contains(&x) {
             Self::ecdhe_private_use(x)
         } else {
             match x {

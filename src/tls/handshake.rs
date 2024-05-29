@@ -1,5 +1,12 @@
-use crate::tls::{impl_from_tls, impl_to_tls, ClientHello, FromByteVec, ToByteVec};
+use crate::tls::{impl_from_tls, impl_to_tls, ClientHello, FromTlsVec, ToTlsVec};
 use crate::Result;
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum ExtensionSelector {
+    ClientHello,
+    ServerHello,
+    HelloRetryRequest,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Handshake {

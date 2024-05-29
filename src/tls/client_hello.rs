@@ -1,4 +1,7 @@
-use crate::tls::{impl_from_tls, impl_to_tls, CipherSuite, Extension, FromByteVec, ToByteVec};
+use crate::tls::{
+    impl_from_tls, impl_to_tls, read_tls_vec_as_vector, read_tls_vec_as_vector_with_selector,
+    write_tls_vec_as_vector, CipherSuite, Extension, FromTlsVec, ToTlsVec,
+};
 use crate::Result;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -31,11 +34,11 @@ impl ClientHello {
 impl_from_tls! {
     ClientHello(v) {
         let (legacy_version, v) = u16::from_tls_vec(v)?;
-        let (random, v): (Vec<u8>, &[u8]) = Vec::from_tls_vec(v)?;
-        let (legacy_session_id, v): (Vec<u8>, &[u8]) = Vec::from_tls_vec(v)?;
-        let (cipher_suites, v): (Vec<CipherSuite>, &[u8]) = Vec::from_tls_vec(v)?;
-        let (legacy_compression_methods, v): (Vec<u8>, &[u8]) = Vec::from_tls_vec(v)?;
-        let (extensions, v): (Vec<Extension>, &[u8]) = Vec::from_tls_vec(v)?;
+        let (random, v) = (v[..32].to_vec(), &v[32..]);
+        let (legacy_session_id, v): (Vec<u8>, &[u8]) = read_tls_vec_as_vector(v, 1)?;
+        let (cipher_suites, v): (Vec<CipherSuite>, &[u8]) = read_tls_vec_as_vector(v, 2)?;
+        let (legacy_compression_methods, v): (Vec<u8>, &[u8]) = read_tls_vec_as_vector(v, 1)?;
+        let (extensions, v): (Vec<Extension>, &[u8]) = read_tls_vec_as_vector_with_selector(v, 2, &crate::tls::handshake::ExtensionSelector::ClientHello)?;
         Ok((
             Self {
                 legacy_version,
@@ -54,11 +57,11 @@ impl_to_tls! {
     ClientHello(self) {
         [
             self.legacy_version.to_tls_vec(),
-            self.random.to_tls_vec()[2..].to_vec(),
-            self.legacy_session_id.to_tls_vec()[1..].to_vec(),
-            self.cipher_suites.to_tls_vec(),
-            self.legacy_compression_methods.to_tls_vec()[1..].to_vec(),
-            self.extensions.to_tls_vec(),
+            self.random.to_vec(),
+            write_tls_vec_as_vector(&self.legacy_session_id, 1),
+            write_tls_vec_as_vector(&self.cipher_suites, 2),
+            write_tls_vec_as_vector(&self.legacy_compression_methods, 1),
+            write_tls_vec_as_vector(&self.extensions, 2),
         ]
         .concat()
     }

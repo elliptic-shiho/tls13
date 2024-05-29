@@ -1,8 +1,10 @@
 use crate::tls::extension_descriptor::{
-    ServerNameDescriptor, SignatureAlgorithmsDescriptor, SupportedGroupsDescriptor,
-    SupportedVersionsDescriptor,
+    KeyShareDescriptor, ServerNameDescriptor, SignatureAlgorithmsDescriptor,
+    SupportedGroupsDescriptor, SupportedVersionsDescriptor,
 };
-use crate::tls::{impl_from_tls, impl_to_tls, FromByteVec, ToByteVec};
+use crate::tls::{
+    impl_from_tls_with_selector, impl_to_tls, FromTlsVec, FromTlsVecWithSelector, ToTlsVec,
+};
 use crate::Result;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -28,7 +30,7 @@ pub enum Extension {
     OidFilters,
     PostHandshakeAuth,
     SignatureAlgorithmsCert,
-    KeyShare,
+    KeyShare(KeyShareDescriptor),
     Unknown,
 }
 
@@ -51,13 +53,17 @@ impl_to_tls! {
                 let v = desc.to_tls_vec();
                 [10u16.to_tls_vec(), (v.len() as u16).to_tls_vec(), v].concat()
             }
+            Self::KeyShare(desc) => {
+                let v = desc.to_tls_vec();
+                [51u16.to_tls_vec(), (v.len() as u16).to_tls_vec(), v].concat()
+            }
             _ => unimplemented!(),
         }
     }
 }
 
-impl_from_tls! {
-    Extension(v) {
+impl_from_tls_with_selector! {
+    Extension<crate::tls::handshake::ExtensionSelector>(v, selector) {
         let (ext_type, v) = u16::from_tls_vec(v)?;
         let (len, v) = u16::from_tls_vec(v)?;
         let (extension_data, v) = (&v[..(len as usize)], &v[(len as usize)..]);
@@ -71,12 +77,16 @@ impl_from_tls! {
                 (Self::SignatureAlgorithms(desc), v)
             }
             43u16 => {
-                let (desc, _) = SupportedVersionsDescriptor::from_tls_vec(extension_data)?;
+                let (desc, _) = SupportedVersionsDescriptor::from_tls_vec(extension_data, selector)?;
                 (Self::SupportedVersions(desc), v)
             }
             10u16 => {
                 let (desc, _) = SupportedGroupsDescriptor::from_tls_vec(extension_data)?;
                 (Self::SupportedGroups(desc), v)
+            }
+            51u16 => {
+                let (desc, _) = KeyShareDescriptor::from_tls_vec(extension_data, selector)?;
+                (Self::KeyShare(desc), v)
             }
             _ => unimplemented!(),
         })

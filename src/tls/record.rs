@@ -1,4 +1,4 @@
-use crate::tls::{FromByteVec, Handshake, ToByteVec};
+use crate::tls::{Alert, FromByteVec, Handshake, ToByteVec};
 use crate::Result;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -14,7 +14,7 @@ pub enum ContentType {
 #[derive(Debug, PartialEq, Eq)]
 pub enum TlsRecord {
     ChangeCipherSpec,
-    Alert,
+    Alert(Alert),
     Handshake(Handshake),
     ApplicationData(Vec<u8>),
 }
@@ -67,6 +67,16 @@ impl ToByteVec for TlsRecord {
                 ]
                 .concat()
             }
+            Self::Alert(al) => {
+                let v = al.to_tls_vec();
+                [
+                    ContentType::Alert.to_tls_vec(), // type
+                    0x0303u16.to_tls_vec(),          // legacy_record_version
+                    (v.len() as u16).to_tls_vec(),   // length
+                    v,                               // fragment
+                ]
+                .concat()
+            }
             _ => unimplemented!(),
         }
     }
@@ -77,10 +87,15 @@ impl FromByteVec for TlsRecord {
         let (ctype, v) = ContentType::from_tls_vec(v)?;
         let (_legacy_record_version, v) = u16::from_tls_vec(v)?;
         let (length, v) = u16::from_tls_vec(v)?;
+        dbg!(&ctype);
         Ok(match ctype {
             ContentType::Handshake => {
                 let (hs, v) = Handshake::from_tls_vec(v)?;
                 (Self::Handshake(hs), v)
+            }
+            ContentType::Alert => {
+                let (al, v) = Alert::from_tls_vec(v)?;
+                (Self::Alert(al), v)
             }
             ContentType::ApplicationData => {
                 let length = length as usize;

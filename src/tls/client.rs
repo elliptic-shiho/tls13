@@ -40,7 +40,7 @@ impl Client {
         let mut v = self.recv_raw()?;
 
         let mut records = vec![];
-        while v.is_empty() {
+        while !v.is_empty() {
             let (rec, t) = TlsRecord::from_tls_vec(&v)?;
             records.push(rec);
             v = t.to_vec();

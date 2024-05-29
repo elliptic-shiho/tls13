@@ -1,4 +1,5 @@
 use crate::Result;
+mod alert;
 mod cipher_suite;
 mod client;
 mod client_hello;
@@ -7,6 +8,7 @@ pub mod extension_descriptor;
 mod handshake;
 mod record;
 
+pub use alert::Alert;
 pub use cipher_suite::CipherSuite;
 pub use client::Client;
 pub use client_hello::ClientHello;

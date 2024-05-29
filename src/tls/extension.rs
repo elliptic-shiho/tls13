@@ -1,9 +1,10 @@
+use crate::tls::extension_descriptor::ServerNameDescriptor;
 use crate::tls::{FromByteVec, ToByteVec};
 use crate::Result;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Extension {
-    ServerName,
+    ServerName(ServerNameDescriptor),
     MaxFragmentLength,
     StatusRequest,
     SupportedGroups,
@@ -30,7 +31,10 @@ pub enum Extension {
 
 impl ToByteVec for Extension {
     fn to_tls_vec(&self) -> Vec<u8> {
-        unimplemented!();
+        match self {
+            Self::ServerName(desc) => [0u16.to_tls_vec(), desc.to_tls_vec()].concat(),
+            _ => unimplemented!(),
+        }
     }
 }
 

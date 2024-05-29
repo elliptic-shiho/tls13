@@ -3,6 +3,7 @@ mod cipher_suite;
 mod client;
 mod client_hello;
 mod extension;
+pub mod extension_descriptor;
 
 pub use cipher_suite::CipherSuite;
 pub use client::Client;
@@ -52,6 +53,22 @@ impl ToByteVec for u32 {
 impl FromByteVec for u32 {
     fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
         Ok((Self::from_be_bytes([v[0], v[1], v[2], v[3]]), &v[4..]))
+    }
+}
+
+impl ToByteVec for String {
+    fn to_tls_vec(&self) -> Vec<u8> {
+        self.as_bytes().to_vec().to_tls_vec()
+    }
+}
+
+impl FromByteVec for String {
+    fn from_tls_vec(v: &[u8]) -> Result<(Self, &[u8])> {
+        let (b, v): (Vec<u8>, &[u8]) = Vec::from_tls_vec(v)?;
+        Ok((
+            String::from_utf8(b).expect("Invalid String specified at String::from_tls_vec"),
+            v,
+        ))
     }
 }
 

@@ -62,8 +62,7 @@ impl_to_tls! {
                 [
                     ContentType::ChangeCipherSpec.to_tls_vec(), // type
                     0x0303u16.to_tls_vec(),                     // legacy_record_version
-                    (v.len() as u16).to_tls_vec(),              // length
-                    v,                                          // fragment
+                    v,                                          // length / fragment
                 ].concat()
             }
             Self::ApplicationData(data, _) => {
@@ -71,8 +70,7 @@ impl_to_tls! {
                 [
                     ContentType::ApplicationData.to_tls_vec(), // type
                     0x0303u16.to_tls_vec(),                    // legacy_record_version
-                    (v.len() as u16).to_tls_vec(),             // length
-                    v,                                         // fragment
+                    v,                                         // length / fragment
                 ].concat()
             }
         }
@@ -125,5 +123,20 @@ impl TlsRecord {
             }
             _ => unimplemented!(),
         })
+    }
+
+    pub fn get_nonce(&self) -> Vec<u8> {
+        match self {
+            Self::Handshake(_, seq) => seq,
+            Self::ChangeCipherSpec(_, seq) => seq,
+            Self::Alert(_, seq) => seq,
+            Self::ApplicationData(_, seq) => seq,
+        }
+        .to_be_bytes()
+        .to_vec()
+    }
+
+    pub fn get_additional_data(&self) -> Vec<u8> {
+        self.to_tls_vec()[..5].to_vec()
     }
 }

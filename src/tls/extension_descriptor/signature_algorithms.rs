@@ -4,12 +4,12 @@ use crate::tls::{
 };
 use crate::Result;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SignatureAlgorithmsDescriptor {
     pub supported_signature_algorithms: Vec<SignatureScheme>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(non_camel_case_types)]
 pub enum SignatureScheme {
     rsa_pkcs1_sha256,

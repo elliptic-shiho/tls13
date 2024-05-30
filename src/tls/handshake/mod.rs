@@ -14,7 +14,7 @@ pub enum ExtensionSelector {
     HelloRetryRequest,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Handshake {
     HelloRequest,
     ClientHello(ClientHello),

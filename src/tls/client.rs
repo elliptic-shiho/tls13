@@ -33,6 +33,7 @@ impl<T: CryptoRng + RngCore> Client<T> {
     }
 
     fn send_handshake(&mut self, hs: Handshake) -> Result<()> {
+        self.keyman.handle_handshake_record(hs.clone());
         let ret = self.send_record(TlsRecord::Handshake(hs, self.sequence_number));
         self.sequence_number += 1;
         ret
@@ -59,7 +60,15 @@ impl<T: CryptoRng + RngCore> Client<T> {
 
         let mut records = vec![];
         while !v.is_empty() {
+            let v2 = v.clone();
             let (rec, t) = TlsRecord::parse(&v, self.sequence_number)?;
+            let t2 = rec.to_tls_vec();
+            if t2 != v2[..t2.len()] {
+                dbg!(&t2);
+                dbg!(&v2[..t2.len()]);
+                dbg!(&rec);
+                panic!();
+            }
             records.push(rec);
             self.sequence_number += 1;
             v = t.to_vec();
@@ -94,32 +103,19 @@ impl<T: CryptoRng + RngCore> Client<T> {
         self.send_handshake(Handshake::ClientHello(ch))?;
 
         for record in self.recv()? {
-            match record {
-                TlsRecord::Handshake(Handshake::ServerHello(sh), _) => {
-                    self.keyman.set_server_random(sh.random.clone());
-                    self.keyman.set_cipher_suite(sh.cipher_suite.clone());
-                    for ext in &sh.extensions {
-                        if let Extension::KeyShare(desc) = ext {
-                            if let KeyShareDescriptor::ServerHello(entry) = desc {
-                                self.keyman.set_server_pubkey(entry.key_exchange.clone());
-                            } else {
-                                dbg!(&sh);
-                                panic!();
-                            }
-                        }
-                    }
+            match &record {
+                TlsRecord::Handshake(hs, _) => {
+                    self.keyman.handle_handshake_record(hs.clone());
                 }
                 TlsRecord::ChangeCipherSpec(_, _) => {
                     println!("[+] ChangeCipherSpec");
                 }
-                TlsRecord::ApplicationData(encrypted, seq) => {
-                    let additional_data = [
-                        vec![23u8, 0x03u8, 0x03u8],
-                        (encrypted.len() as u16).to_tls_vec(),
-                    ]
-                    .concat();
-                    dbg!(additional_data);
-                    dbg!(seq);
+                TlsRecord::ApplicationData(encrypted, _) => {
+                    let additional_data = record.get_additional_data();
+                    let nonce = record.get_nonce();
+                    dbg!(self
+                        .keyman
+                        .decrypt_handshake(encrypted, &nonce, &additional_data));
                 }
                 x => {
                     dbg!(&x);

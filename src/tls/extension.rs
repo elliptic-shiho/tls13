@@ -7,7 +7,7 @@ use crate::tls::{
 };
 use crate::Result;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Extension {
     ServerName(ServerNameDescriptor),
     MaxFragmentLength,

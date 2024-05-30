@@ -5,7 +5,7 @@ use crate::tls::{
 };
 use crate::Result;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum SupportedVersionsDescriptor {
     ClientHello(Vec<u16>),
     ServerHello(u16),

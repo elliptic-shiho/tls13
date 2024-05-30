@@ -4,7 +4,7 @@ use crate::tls::{
 };
 use crate::Result;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ClientHello {
     legacy_version: u16,
     pub random: Vec<u8>,

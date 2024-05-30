@@ -4,7 +4,7 @@ use crate::tls::{
 };
 use crate::Result;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(non_camel_case_types)]
 pub enum NamedGroup {
     secp256r1,
@@ -21,7 +21,7 @@ pub enum NamedGroup {
     ecdhe_private_use(u16),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SupportedGroupsDescriptor {
     pub named_group_list: Vec<NamedGroup>,
 }

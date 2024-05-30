@@ -6,13 +6,13 @@ use crate::tls::{
 };
 use crate::Result;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct KeyShareEntry {
     pub group: NamedGroup,
     pub key_exchange: Vec<u8>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum KeyShareDescriptor {
     ClientHello(Vec<KeyShareEntry>),
     HelloRetryRequest(NamedGroup),

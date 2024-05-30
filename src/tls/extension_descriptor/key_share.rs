@@ -62,6 +62,7 @@ impl_from_tls_with_selector! {
                 let (entry, v) = KeyShareEntry::from_tls_vec(v)?;
                 (Self::ServerHello(entry), v)
             }
+            _ => unreachable!()
         })
     }
 }

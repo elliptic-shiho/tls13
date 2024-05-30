@@ -1,7 +1,10 @@
 mod client_hello;
 mod server_hello;
 
-use crate::tls::{impl_from_tls, impl_to_tls, FromTlsVec, ToTlsVec};
+use crate::tls::{
+    impl_from_tls, impl_to_tls, read_tls_vec_as_vector_with_selector, Extension, FromTlsVec,
+    ToTlsVec,
+};
 use crate::Result;
 
 pub use client_hello::ClientHello;
@@ -12,22 +15,22 @@ pub enum ExtensionSelector {
     ClientHello,
     ServerHello,
     HelloRetryRequest,
+    EncryptedExtensions,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Handshake {
-    HelloRequest,
     ClientHello(ClientHello),
     ServerHello(ServerHello),
+    NewSessionTicket,
+    EndOfEarlyData,
+    EncryptedExtensions(Vec<Extension>),
     Certificate,
-    ServerKeyExchange,
     CertificateRequest,
-    ServerHelloDone,
     CertificateVerify,
-    ClientKeyExchange,
     Finished,
-    CertificateUrl,
-    CertificateStatus,
+    KeyUpdate,
+    MessageHash,
 }
 
 impl_to_tls! {
@@ -55,21 +58,23 @@ impl_to_tls! {
 impl_from_tls! {
     Handshake(v) {
         let (hs_type, v) = u8::from_tls_vec(v)?;
+        let _len = u32::from_be_bytes([0, v[0], v[1], v[2]]);
         match hs_type {
             1u8 => {
-                let _len = u32::from_be_bytes([0, v[0], v[1], v[2]]);
                 let (ch, v) = ClientHello::from_tls_vec(v)?;
                 Ok((Self::ClientHello(ch), v))
             }
             2u8 => {
-                let len = u32::from_be_bytes([0, v[0], v[1], v[2]]);
                 let v = &v[3..];
-                dbg!(len);
                 let (sh, v) = ServerHello::from_tls_vec(v)?;
                 Ok((Self::ServerHello(sh), v))
+            },
+            8u8 => {
+                let (ee, v) = read_tls_vec_as_vector_with_selector(v, 2, &ExtensionSelector::EncryptedExtensions)?;
+                Ok((Self::EncryptedExtensions(ee), v))
             }
-            x => {
-                dbg!(x);
+            _ => {
+                dbg!(hs_type);
                 unimplemented!();
             }
         }

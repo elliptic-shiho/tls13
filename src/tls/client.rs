@@ -34,9 +34,7 @@ impl<T: CryptoRng + RngCore> Client<T> {
 
     fn send_handshake(&mut self, hs: Handshake) -> Result<()> {
         self.keyman.handle_handshake_record(hs.clone());
-        let ret = self.send_record(TlsRecord::Handshake(hs, self.sequence_number));
-        self.sequence_number += 1;
-        ret
+        self.send_record(TlsRecord::Handshake(hs))
     }
 
     fn recv_raw(&mut self) -> Result<Vec<u8>> {
@@ -62,6 +60,9 @@ impl<T: CryptoRng + RngCore> Client<T> {
         while !v.is_empty() {
             let v2 = v.clone();
             let (rec, t) = TlsRecord::parse(&v, self.sequence_number)?;
+            if matches!(rec, TlsRecord::ApplicationData(_, _)) {
+                self.sequence_number += 1;
+            }
             let t2 = rec.to_tls_vec();
             if t2 != v2[..t2.len()] {
                 dbg!(&t2);
@@ -70,7 +71,6 @@ impl<T: CryptoRng + RngCore> Client<T> {
                 panic!();
             }
             records.push(rec);
-            self.sequence_number += 1;
             v = t.to_vec();
         }
         Ok(records)
@@ -104,18 +104,19 @@ impl<T: CryptoRng + RngCore> Client<T> {
 
         for record in self.recv()? {
             match &record {
-                TlsRecord::Handshake(hs, _) => {
+                TlsRecord::Handshake(hs) => {
                     self.keyman.handle_handshake_record(hs.clone());
                 }
-                TlsRecord::ChangeCipherSpec(_, _) => {
+                TlsRecord::ChangeCipherSpec(_) => {
                     println!("[+] ChangeCipherSpec");
                 }
                 TlsRecord::ApplicationData(encrypted, _) => {
                     let additional_data = record.get_additional_data();
                     let nonce = record.get_nonce();
-                    dbg!(self
-                        .keyman
-                        .decrypt_handshake(encrypted, &nonce, &additional_data));
+                    let decrypted =
+                        self.keyman
+                            .decrypt_handshake(encrypted, &nonce, &additional_data);
+                    dbg!(TlsRecord::parse_inner_plaintext(&decrypted)?);
                 }
                 x => {
                     dbg!(&x);

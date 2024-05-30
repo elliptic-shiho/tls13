@@ -127,11 +127,6 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
             12,
         );
 
-        println!(
-            "{:x?}",
-            self.server_handshake_traffic_secret.as_ref().unwrap()
-        );
-
         let mut nonce = [vec![0; iv.len() - nonce.len()], nonce.to_vec()].concat();
         for i in 0..nonce.len() {
             nonce[i] ^= iv[i];
@@ -144,8 +139,7 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
             aad: additional_data,
         };
 
-        dbg!(cipher.decrypt(Nonce::from_slice(&nonce), payload));
-        vec![]
+        cipher.decrypt(Nonce::from_slice(&nonce), payload).unwrap()
     }
 
     // [RFC8446, p.93] Section 7.1 "Key Schedule"

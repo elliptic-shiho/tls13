@@ -68,7 +68,10 @@ impl_from_tls! {
                 let (sh, v) = ServerHello::from_tls_vec(v)?;
                 Ok((Self::ServerHello(sh), v))
             }
-            _ => unimplemented!(),
+            x => {
+                dbg!(x);
+                unimplemented!();
+            }
         }
     }
 }

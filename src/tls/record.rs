@@ -15,9 +15,9 @@ pub enum ContentType {
 // a direct sum structure of TLSPlaintext / TLSCiphertext / TLSInnerPlaintext
 #[derive(Debug, PartialEq, Eq)]
 pub enum TlsRecord {
-    ChangeCipherSpec(Vec<u8>, u64),
-    Alert(Alert, u64),
-    Handshake(Handshake, u64),
+    ChangeCipherSpec(Vec<u8>),
+    Alert(Alert),
+    Handshake(Handshake),
     ApplicationData(Vec<u8>, u64),
 }
 
@@ -34,7 +34,7 @@ impl_to_tls! {
 
     TlsRecord(self) {
         match self {
-            Self::Handshake(hs, _) => {
+            Self::Handshake(hs) => {
                 let v = hs.to_tls_vec();
                 if v.len() >= 65536 {
                     panic!();
@@ -47,7 +47,7 @@ impl_to_tls! {
                 ]
                 .concat()
             }
-            Self::Alert(al, _) => {
+            Self::Alert(al) => {
                 let v = al.to_tls_vec();
                 [
                     ContentType::Alert.to_tls_vec(), // type
@@ -57,7 +57,7 @@ impl_to_tls! {
                 ]
                 .concat()
             }
-            Self::ChangeCipherSpec(data, _) => {
+            Self::ChangeCipherSpec(data) => {
                 let v = write_tls_vec_as_vector(data, 2);
                 [
                     ContentType::ChangeCipherSpec.to_tls_vec(), // type
@@ -98,23 +98,23 @@ impl_from_tls! {
 }
 
 impl TlsRecord {
-    pub fn parse(v: &[u8], seq_num: u64) -> Result<(TlsRecord, &[u8])> {
+    pub fn parse(v: &[u8], seq_num: u64) -> Result<(Self, &[u8])> {
         let (ctype, v) = ContentType::from_tls_vec(v)?;
         let (_legacy_record_version, v) = u16::from_tls_vec(v)?;
         let (length, v) = u16::from_tls_vec(v)?;
         Ok(match ctype {
             ContentType::Handshake => {
                 let (hs, v) = Handshake::from_tls_vec(v)?;
-                (Self::Handshake(hs, seq_num), v)
+                (Self::Handshake(hs), v)
             }
             ContentType::Alert => {
                 let (al, v) = Alert::from_tls_vec(v)?;
-                (Self::Alert(al, seq_num), v)
+                (Self::Alert(al), v)
             }
             ContentType::ChangeCipherSpec => {
                 let length = length as usize;
                 let (data, v) = (v[..length].to_vec(), &v[length..]);
-                (Self::ChangeCipherSpec(data, seq_num), v)
+                (Self::ChangeCipherSpec(data), v)
             }
             ContentType::ApplicationData => {
                 let length = length as usize;
@@ -125,12 +125,32 @@ impl TlsRecord {
         })
     }
 
+    pub fn parse_inner_plaintext(v: &[u8]) -> Result<Self> {
+        let ct = &v[v.len() - 1..];
+        if ct == [0u8] {
+            return Self::parse_inner_plaintext(v.strip_suffix(&[0]).unwrap());
+        }
+        let (ctype, _) = ContentType::from_tls_vec(ct).unwrap();
+        Ok(match ctype {
+            ContentType::Handshake => {
+                let (hs, _) = Handshake::from_tls_vec(v)?;
+                Self::Handshake(hs)
+            }
+            ContentType::Alert => {
+                let (al, _) = Alert::from_tls_vec(v)?;
+                Self::Alert(al)
+            }
+            x => {
+                dbg!(x);
+                unimplemented!();
+            }
+        })
+    }
+
     pub fn get_nonce(&self) -> Vec<u8> {
         match self {
-            Self::Handshake(_, seq) => seq,
-            Self::ChangeCipherSpec(_, seq) => seq,
-            Self::Alert(_, seq) => seq,
             Self::ApplicationData(_, seq) => seq,
+            _ => &0u64,
         }
         .to_be_bytes()
         .to_vec()

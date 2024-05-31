@@ -3,20 +3,20 @@ use crate::Result;
 
 use num_derive::{FromPrimitive, ToPrimitive};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Alert {
     pub level: AlertLevel,
     pub description: AlertDescription,
 }
 
-#[derive(FromPrimitive, ToPrimitive, Debug, PartialEq, Eq)]
+#[derive(FromPrimitive, ToPrimitive, Debug, PartialEq, Eq, Clone)]
 #[repr(u8)]
 pub enum AlertLevel {
     Warning = 1,
     Fatal = 2,
 }
 
-#[derive(FromPrimitive, ToPrimitive, Debug, PartialEq, Eq)]
+#[derive(FromPrimitive, ToPrimitive, Debug, PartialEq, Eq, Clone)]
 #[repr(u8)]
 pub enum AlertDescription {
     CloseNotify = 0,

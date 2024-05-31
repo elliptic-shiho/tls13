@@ -1,6 +1,7 @@
 use crate::tls::extension_descriptor::KeyShareDescriptor;
 use crate::tls::handshake::Certificate;
-use crate::tls::{CipherSuite, Extension, Handshake, ToTlsVec};
+use crate::tls::{CipherSuite, Extension, Handshake, TlsRecord, ToTlsVec};
+use crate::Result;
 use p256::ecdh::{EphemeralSecret, SharedSecret};
 use p256::{EncodedPoint, PublicKey};
 use rand::prelude::*;
@@ -17,14 +18,14 @@ pub struct TlsKeyManager<T: CryptoRng + RngCore> {
     psk: Option<Vec<u8>>,
     early_secret: Option<Vec<u8>>,
     handshake_secret: Option<Vec<u8>>,
-    client_handshake_traffic_secret: Option<Vec<u8>>,
-    server_handshake_traffic_secret: Option<Vec<u8>>,
     cert_type: CertificateType,
     server_cert: Option<Certificate>,
     server_handshake_context: Option<Vec<u8>>,
-    master_secret: Option<Vec<u8>>,
-    client_application_traffic_secret: Option<Vec<u8>>,
-    server_application_traffic_secret: Option<Vec<u8>>,
+    client_traffic_secret: Option<Vec<u8>>,
+    server_traffic_secret: Option<Vec<u8>>,
+    finished_verify_data: Option<Vec<u8>>,
+    client_traffic_secret_ap: Option<Vec<u8>>,
+    server_traffic_secret_ap: Option<Vec<u8>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -46,14 +47,14 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
             psk: None,
             early_secret: None,
             handshake_secret: None,
-            client_handshake_traffic_secret: None,
-            server_handshake_traffic_secret: None,
             cert_type: CertificateType::X509,
             server_cert: None,
             server_handshake_context: None,
-            master_secret: None,
-            client_application_traffic_secret: None,
-            server_application_traffic_secret: None,
+            client_traffic_secret: None,
+            server_traffic_secret: None,
+            finished_verify_data: None,
+            client_traffic_secret_ap: None,
+            server_traffic_secret_ap: None,
         }
     }
 
@@ -100,6 +101,10 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
         self.psk = Some(psk);
     }
 
+    pub fn handle_handshake_record_client(&mut self, hs: Handshake) {
+        self.handshake_messages.push(hs.clone());
+    }
+
     pub fn handle_handshake_record(&mut self, hs: Handshake) {
         self.handshake_messages.push(hs.clone());
         match &hs {
@@ -118,7 +123,6 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
                 }
                 self.update_handshake_secret();
             }
-            Handshake::ClientHello(_) => {}
             Handshake::EncryptedExtensions(ee) => {
                 if !ee.is_empty() {
                     dbg!(ee);
@@ -151,13 +155,13 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
 
                 let raw_cert = server_cert
                     .certificate_list
-                    .last()
+                    .first()
                     .as_ref()
                     .unwrap()
                     .cert_data
                     .clone();
-                let x509_cert = X509Certificate::from_der(&raw_cert).unwrap().1;
 
+                let x509_cert = X509Certificate::from_der(&raw_cert).unwrap().1;
                 match x509_cert.public_key().parsed().unwrap() {
                     x509_parser::public_key::PublicKey::EC(point) => {
                         if !cert_verify
@@ -169,29 +173,31 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
                     }
                     _ => todo!(),
                 }
-
-                let mut v = vec![];
-                for msg in &self.handshake_messages {
-                    v.push(msg.to_tls_vec());
-                }
-                self.server_handshake_context = Some(v.concat())
+                self.server_handshake_context = Some(self.transcript_hash())
             }
             Handshake::Finished(fin) => {
                 // [RFC8446] Section 4.4.4 "Finished"
                 let cs = self.get_ciphersuite();
-                let context = self.server_handshake_context.as_ref().unwrap().to_vec();
-                let transcript_hash = cs.hash(context.clone());
-                let finished_key = cs.hkdf_expand_label(
-                    self.server_handshake_traffic_secret.as_ref().unwrap(),
+                let transcript_hash = self.server_handshake_context.as_ref().unwrap().to_vec();
+                let server_finished_key = cs.hkdf_expand_label(
+                    self.server_traffic_secret.as_ref().unwrap(),
                     "finished",
                     &[],
                     cs.hash_length(),
                 );
 
-                if cs.hmac(&finished_key, &transcript_hash) != fin.verify_data {
+                if cs.hmac(&server_finished_key, &transcript_hash) != fin.verify_data {
                     panic!("Failed to verify the server finished hmac");
                 }
 
+                let client_finished_key = cs.hkdf_expand_label(
+                    self.client_traffic_secret.as_ref().unwrap(),
+                    "finished",
+                    &[],
+                    cs.hash_length(),
+                );
+
+                let verify_data = cs.hmac(&client_finished_key, &self.transcript_hash());
                 let master_secret = cs.hkdf_extract(
                     &self.derive_secret_with_empty_msg(
                         self.handshake_secret.as_ref().unwrap(),
@@ -200,11 +206,11 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
                     &self.zero_vector(),
                 );
 
-                self.client_application_traffic_secret =
+                self.client_traffic_secret_ap =
                     Some(self.derive_secret(&master_secret, "c ap traffic"));
-                self.server_application_traffic_secret =
+                self.server_traffic_secret_ap =
                     Some(self.derive_secret(&master_secret, "s ap traffic"));
-                self.master_secret = Some(master_secret);
+                self.finished_verify_data = Some(verify_data);
             }
             x => {
                 dbg!(&x);
@@ -212,60 +218,77 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
         }
     }
 
-    pub fn decrypt_handshake(
-        &mut self,
-        ciphertext: &[u8],
-        nonce: &[u8],
-        additional_data: &[u8],
-    ) -> Vec<u8> {
-        let cs = self.get_ciphersuite();
-        let key = cs.hkdf_expand_label(
-            self.server_handshake_traffic_secret.as_ref().unwrap(),
-            "key",
-            &[],
-            cs.key_length(),
-        );
-        let iv = cs.hkdf_expand_label(
-            self.server_handshake_traffic_secret.as_ref().unwrap(),
-            "iv",
-            &[],
-            cs.iv_length(),
-        );
+    pub fn encrypt_record(&mut self, record: &TlsRecord) -> TlsRecord {
+        let inner_plaintext = record.unparse_inner_plaintext();
+        let nonce = record.get_nonce();
+        let aad = [
+            vec![23, 3, 3],
+            ((inner_plaintext.len() + self.get_ciphersuite().tag_length()) as u16).to_tls_vec(),
+        ]
+        .concat();
 
-        let mut nonce = [vec![0; iv.len() - nonce.len()], nonce.to_vec()].concat();
-        for i in 0..nonce.len() {
-            nonce[i] ^= iv[i];
-        }
-
-        cs.decrypt(&key, ciphertext, &nonce, additional_data)
+        TlsRecord::ApplicationData(
+            self.encrypt_raw(&inner_plaintext, &nonce, &aad),
+            record.get_sequence_number(),
+        )
     }
 
-    pub fn encrypt_application_data(
-        &mut self,
-        plaintext: &[u8],
-        nonce: &[u8],
-        additional_data: &[u8],
-    ) -> Vec<u8> {
-        let cs = self.get_ciphersuite();
-        let key = cs.hkdf_expand_label(
-            self.server_handshake_traffic_secret.as_ref().unwrap(),
-            "key",
-            &[],
-            cs.key_length(),
-        );
-        let iv = cs.hkdf_expand_label(
-            self.server_handshake_traffic_secret.as_ref().unwrap(),
-            "iv",
-            &[],
-            cs.iv_length(),
-        );
+    pub fn decrypt_record(&mut self, record: &TlsRecord) -> Result<TlsRecord> {
+        assert!(matches!(record, TlsRecord::ApplicationData(_, _)));
+        if let TlsRecord::ApplicationData(encrypted, _) = record {
+            let nonce = record.get_nonce();
+            let aad = record.get_additional_data();
+
+            let decrypted = self.decrypt_raw(encrypted, &nonce, &aad);
+            let rec = TlsRecord::parse_inner_plaintext(&decrypted)?;
+
+            if rec.to_tls_vec()[5..] != decrypted[..(decrypted.len() - 1)] {
+                dbg!(&rec);
+                dbg!(&rec.to_tls_vec()[5..]);
+                dbg!(decrypted);
+                panic!();
+            }
+            Ok(rec)
+        } else {
+            unreachable!();
+        }
+    }
+
+    fn encrypt_raw(&mut self, plaintext: &[u8], nonce: &[u8], additional_data: &[u8]) -> Vec<u8> {
+        let (key, iv) = self.gen_key_and_iv(self.client_traffic_secret.as_ref().unwrap());
 
         let mut nonce = [vec![0; iv.len() - nonce.len()], nonce.to_vec()].concat();
         for i in 0..nonce.len() {
             nonce[i] ^= iv[i];
         }
 
-        cs.encrypt(&key, plaintext, &nonce, additional_data)
+        self.get_ciphersuite()
+            .encrypt(&key, plaintext, &nonce, additional_data)
+    }
+
+    fn decrypt_raw(&mut self, ciphertext: &[u8], nonce: &[u8], additional_data: &[u8]) -> Vec<u8> {
+        let (key, iv) = self.gen_key_and_iv(self.server_traffic_secret.as_ref().unwrap());
+
+        let mut nonce = [vec![0; iv.len() - nonce.len()], nonce.to_vec()].concat();
+        for i in 0..nonce.len() {
+            nonce[i] ^= iv[i];
+        }
+
+        self.get_ciphersuite()
+            .decrypt(&key, ciphertext, &nonce, additional_data)
+    }
+
+    pub fn get_verify_data(&self) -> Vec<u8> {
+        self.finished_verify_data.as_ref().unwrap().clone()
+    }
+
+    // [RFC8446] Section 7.3 "Traffic Key Calculation"
+    fn gen_key_and_iv(&self, secret: &[u8]) -> (Vec<u8>, Vec<u8>) {
+        let cs = self.get_ciphersuite();
+        let key = cs.hkdf_expand_label(secret, "key", &[], cs.key_length());
+        let iv = cs.hkdf_expand_label(secret, "iv", &[], cs.iv_length());
+
+        (key, iv)
     }
 
     // [RFC8446, p.93] Section 7.1 "Key Schedule"
@@ -287,9 +310,18 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
         let derived =
             self.derive_secret_with_empty_msg(self.early_secret.as_ref().unwrap(), "derived");
         let hs_secret = self.get_ciphersuite().hkdf_extract(&derived, shared_secret);
-        self.client_handshake_traffic_secret = Some(self.derive_secret(&hs_secret, "c hs traffic"));
-        self.server_handshake_traffic_secret = Some(self.derive_secret(&hs_secret, "s hs traffic"));
+        self.client_traffic_secret = Some(self.derive_secret(&hs_secret, "c hs traffic"));
+        self.server_traffic_secret = Some(self.derive_secret(&hs_secret, "s hs traffic"));
         self.handshake_secret = Some(hs_secret);
+    }
+
+    pub fn finish_handshake(&mut self) {
+        let cts_ap = self.client_traffic_secret_ap.as_ref().unwrap().clone();
+        let sts_ap = self.server_traffic_secret_ap.as_ref().unwrap().clone();
+        self.client_traffic_secret = Some(cts_ap);
+        self.server_traffic_secret = Some(sts_ap);
+        self.client_traffic_secret_ap = None;
+        self.server_traffic_secret_ap = None;
     }
 
     // [RFC8446, p.91] Section 7.1 "Key Schedule"

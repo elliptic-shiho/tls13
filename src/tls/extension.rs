@@ -73,7 +73,7 @@ impl_from_tls_with_selector! {
                 (Self::ServerName(desc), v)
             }
             13u16 => {
-                let (desc, _) = SignatureAlgorithmsDescriptor::from_tls_vec(extension_data)?;
+                let (desc, v) = SignatureAlgorithmsDescriptor::from_tls_vec(extension_data)?;
                 (Self::SignatureAlgorithms(desc), v)
             }
             43u16 => {
@@ -88,7 +88,10 @@ impl_from_tls_with_selector! {
                 let (desc, _) = KeyShareDescriptor::from_tls_vec(extension_data, selector)?;
                 (Self::KeyShare(desc), v)
             }
-            _ => unimplemented!(),
+            _ => {
+                dbg!(ext_type);
+                unimplemented!();
+            }
         })
     }
 }

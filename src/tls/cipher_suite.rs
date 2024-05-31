@@ -58,6 +58,13 @@ impl CipherSuite {
         }
     }
 
+    pub fn tag_length(&self) -> usize {
+        match self {
+            Self::TLS_AES_128_GCM_SHA256 => 16,
+            _ => todo!(),
+        }
+    }
+
     pub fn encrypt(&self, key: &[u8], plaintext: &[u8], nonce: &[u8], aad: &[u8]) -> Vec<u8> {
         match self {
             Self::TLS_AES_128_GCM_SHA256 => {
@@ -93,12 +100,12 @@ impl CipherSuite {
     pub fn hash(&self, message: Vec<u8>) -> Vec<u8> {
         match self {
             CipherSuite::TLS_AES_256_GCM_SHA384 => {
-                let mut hasher = Sha384::new();
+                let mut hasher = <Sha384 as Digest>::new();
                 hasher.update(message);
                 hasher.finalize().to_vec()
             }
             _ => {
-                let mut hasher = Sha256::new();
+                let mut hasher = <Sha256 as Digest>::new();
                 hasher.update(message);
                 hasher.finalize().to_vec()
             }

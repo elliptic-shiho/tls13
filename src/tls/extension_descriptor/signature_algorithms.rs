@@ -62,8 +62,7 @@ impl_to_tls! {
 
 impl_from_tls! {
     SignatureAlgorithmsDescriptor(v) {
-        let (supported_signature_algorithms, v): (Vec<SignatureScheme>, &[u8]) =
-            read_tls_vec_as_vector(v, 2)?;
+        let (supported_signature_algorithms, v) = read_tls_vec_as_vector(v, 2)?;
         Ok((
             SignatureAlgorithmsDescriptor {
                 supported_signature_algorithms,

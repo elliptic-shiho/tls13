@@ -13,7 +13,7 @@ pub enum ContentType {
 }
 
 // a direct sum structure of TLSPlaintext / TLSCiphertext / TLSInnerPlaintext
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TlsRecord {
     ChangeCipherSpec(Vec<u8>),
     Alert(Alert),
@@ -102,6 +102,7 @@ impl TlsRecord {
         let (ctype, v) = ContentType::from_tls_vec(v)?;
         let (_legacy_record_version, v) = u16::from_tls_vec(v)?;
         let (length, v) = u16::from_tls_vec(v)?;
+        assert!((length as i32) < (256 + (1 << 14)));
         Ok(match ctype {
             ContentType::Handshake => {
                 let (hs, v) = Handshake::from_tls_vec(v)?;
@@ -126,11 +127,12 @@ impl TlsRecord {
     }
 
     pub fn parse_inner_plaintext(v: &[u8]) -> Result<Self> {
-        let ct = &v[v.len() - 1..];
-        if ct == [0u8] {
+        let ct = v[v.len() - 1];
+        if ct == 0u8 {
             return Self::parse_inner_plaintext(v.strip_suffix(&[0]).unwrap());
         }
-        let (ctype, _) = ContentType::from_tls_vec(ct).unwrap();
+        let (ctype, _) = ContentType::from_tls_vec(&[ct]).unwrap();
+        let v = &v[..v.len() - 1];
         Ok(match ctype {
             ContentType::Handshake => {
                 let (hs, _) = Handshake::from_tls_vec(v)?;
@@ -140,6 +142,7 @@ impl TlsRecord {
                 let (al, _) = Alert::from_tls_vec(v)?;
                 Self::Alert(al)
             }
+            ContentType::ApplicationData => Self::ApplicationData(v.to_vec(), 0),
             x => {
                 dbg!(x);
                 unimplemented!();
@@ -147,16 +150,44 @@ impl TlsRecord {
         })
     }
 
+    pub fn unparse_inner_plaintext(&self) -> Vec<u8> {
+        let tls_vec = self.to_tls_vec();
+        [tls_vec[5..].to_vec(), vec![tls_vec[0]]].concat()
+    }
+
     pub fn get_nonce(&self) -> Vec<u8> {
-        match self {
-            Self::ApplicationData(_, seq) => seq,
-            _ => &0u64,
-        }
-        .to_be_bytes()
-        .to_vec()
+        self.get_sequence_number().to_be_bytes().to_vec()
     }
 
     pub fn get_additional_data(&self) -> Vec<u8> {
         self.to_tls_vec()[..5].to_vec()
+    }
+
+    pub fn get_sequence_number(&self) -> u64 {
+        match self {
+            Self::ApplicationData(_, seq) => *seq,
+            _ => 0u64,
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test_unparse_inner_plaintext() {
+        use crate::tls::TlsRecord;
+        let record = TlsRecord::ApplicationData(b"test".to_vec(), 0);
+        assert_eq!(
+            record.unparse_inner_plaintext(),
+            vec![0x74, 0x65, 0x73, 0x74, 23]
+        );
+    }
+
+    #[test]
+    fn test_parse_inner_plaintext() {
+        use crate::tls::TlsRecord;
+        let record = TlsRecord::ApplicationData(b"test".to_vec(), 0);
+        let v = vec![0x74, 0x65, 0x73, 0x74, 23];
+        assert_eq!(TlsRecord::parse_inner_plaintext(&v).unwrap(), record);
     }
 }

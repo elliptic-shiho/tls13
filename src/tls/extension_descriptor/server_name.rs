@@ -16,14 +16,22 @@ pub enum ServerName {
 
 impl_to_tls! {
     ServerNameDescriptor(self) {
-        write_tls_vec_as_vector(&self.server_names, 2)
+        if self.server_names.is_empty() {
+            vec![]
+        } else {
+            write_tls_vec_as_vector(&self.server_names, 2)
+        }
     }
 
     ServerName(self) {
         match self {
             Self::HostName(name) => {
                 let v = name.as_bytes();
-                [vec![0], (v.len() as u16).to_tls_vec(), v.to_vec()].concat()
+                if v.is_empty() {
+                    vec![0]
+                } else {
+                    [vec![0], (v.len() as u16).to_tls_vec(), v.to_vec()].concat()
+                }
             },
         }
     }

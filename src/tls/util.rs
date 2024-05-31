@@ -5,6 +5,10 @@ pub fn read_tls_vec_as_vector<T>(v: &[u8], header_size: usize) -> Result<(Vec<T>
 where
     T: FromTlsVec,
 {
+    if v.len() < header_size {
+        return Ok((vec![], v));
+    }
+
     let len = match header_size {
         1 => v[0] as usize,
         2 => u16::from_be_bytes([v[0], v[1]]) as usize,
@@ -37,6 +41,10 @@ pub fn read_tls_vec_as_vector_with_selector<'a, T, S>(
 where
     T: FromTlsVecWithSelector<S>,
 {
+    if v.len() < header_size {
+        return Ok((vec![], v));
+    }
+
     let len = match header_size {
         1 => v[0] as usize,
         2 => u16::from_be_bytes([v[0], v[1]]) as usize,

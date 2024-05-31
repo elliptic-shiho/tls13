@@ -1,4 +1,5 @@
 use crate::tls::crypto::TlsKeyManager;
+use crate::tls::handshake::Finished;
 use crate::tls::{CipherSuite, ClientHello, Extension, Handshake, TlsRecord, ToTlsVec};
 use crate::Result;
 use rand::prelude::*;
@@ -9,7 +10,8 @@ pub struct Client<T: CryptoRng + RngCore> {
     conn: TcpStream,
     host: String,
     keyman: TlsKeyManager<T>,
-    sequence_number: u64,
+    sequence_number_client: u64,
+    sequence_number_server: u64,
 }
 
 impl<T: CryptoRng + RngCore> Client<T> {
@@ -23,7 +25,8 @@ impl<T: CryptoRng + RngCore> Client<T> {
             conn,
             host: host.to_string(),
             keyman,
-            sequence_number: 0,
+            sequence_number_client: 0,
+            sequence_number_server: 0,
         })
     }
 
@@ -33,13 +36,20 @@ impl<T: CryptoRng + RngCore> Client<T> {
     }
 
     fn send_handshake(&mut self, hs: Handshake) -> Result<()> {
-        self.keyman.handle_handshake_record(hs.clone());
+        self.keyman.handle_handshake_record_client(hs.clone());
         self.send_record(TlsRecord::Handshake(hs))
+    }
+
+    fn send_handshake_encrypted(&mut self, hs: Handshake) -> Result<()> {
+        self.keyman.handle_handshake_record_client(hs.clone());
+        let record = TlsRecord::Handshake(hs);
+        let encrypted_record = self.keyman.encrypt_record(&record);
+        self.send_record(encrypted_record)
     }
 
     fn recv_raw(&mut self) -> Result<Vec<u8>> {
         let mut res = vec![];
-        const N: usize = 8192;
+        const N: usize = 256;
         let mut v: [u8; N] = [0; N];
 
         loop {
@@ -59,9 +69,9 @@ impl<T: CryptoRng + RngCore> Client<T> {
         let mut records = vec![];
         while !v.is_empty() {
             let v2 = v.clone();
-            let (rec, t) = TlsRecord::parse(&v, self.sequence_number)?;
+            let (rec, t) = TlsRecord::parse(&v, self.sequence_number_server)?;
             if matches!(rec, TlsRecord::ApplicationData(_, _)) {
-                self.sequence_number += 1;
+                self.sequence_number_server += 1;
             }
             let t2 = rec.to_tls_vec();
             if t2 != v2[..t2.len()] {
@@ -76,7 +86,7 @@ impl<T: CryptoRng + RngCore> Client<T> {
         Ok(records)
     }
 
-    pub fn handshake(&mut self) -> Result<()> {
+    pub fn handshake(&mut self) -> Result<Vec<TlsRecord>> {
         use crate::tls::extension_descriptor::*;
         let ch = ClientHello::new(
             self.keyman.gen_client_random(),
@@ -112,13 +122,8 @@ impl<T: CryptoRng + RngCore> Client<T> {
                 TlsRecord::ChangeCipherSpec(_) => {
                     println!("[+] ChangeCipherSpec");
                 }
-                TlsRecord::ApplicationData(encrypted, _) => {
-                    let additional_data = record.get_additional_data();
-                    let nonce = record.get_nonce();
-                    let decrypted =
-                        self.keyman
-                            .decrypt_handshake(encrypted, &nonce, &additional_data);
-                    inner_plaintext.push(TlsRecord::parse_inner_plaintext(&decrypted)?);
+                TlsRecord::ApplicationData(_, _) => {
+                    inner_plaintext.push(self.keyman.decrypt_record(&record)?);
                 }
                 x => {
                     dbg!(&x);
@@ -126,10 +131,17 @@ impl<T: CryptoRng + RngCore> Client<T> {
             }
         }
 
-        for record in inner_plaintext {
+        for record in &inner_plaintext {
             match &record {
                 TlsRecord::Handshake(hs) => {
                     self.keyman.handle_handshake_record(hs.clone());
+
+                    if matches!(hs, Handshake::Finished(_)) {
+                        self.send_handshake_encrypted(Handshake::Finished(Finished {
+                            verify_data: self.keyman.get_verify_data(),
+                        }))?;
+                        break;
+                    }
                 }
                 x => {
                     dbg!(&x);
@@ -137,6 +149,41 @@ impl<T: CryptoRng + RngCore> Client<T> {
             }
         }
 
-        Ok(())
+        self.sequence_number_server = 0;
+        self.sequence_number_client = 0;
+        self.keyman.finish_handshake();
+
+        for record in self.recv()? {
+            match &record {
+                TlsRecord::ApplicationData(_, _) => {
+                    dbg!(self.keyman.decrypt_record(&record)?);
+                }
+                x => {
+                    dbg!(&x);
+                }
+            }
+        }
+
+        Ok(vec![])
+    }
+
+    pub fn send_tls_message(&mut self, v: &[u8]) -> Result<()> {
+        let record = TlsRecord::ApplicationData(v.to_vec(), self.sequence_number_client);
+        self.sequence_number_client += 1;
+        let encrypted = self.keyman.encrypt_record(&record);
+        self.send_record(encrypted)
+    }
+
+    pub fn recv_tls_message(&mut self) -> Result<Vec<u8>> {
+        let records = self.recv()?;
+        for record in &records {
+            if let TlsRecord::ApplicationData(_, _) = record {
+                dbg!(&record);
+                let decrypted = self.keyman.decrypt_record(record)?;
+                dbg!(&decrypted);
+            }
+        }
+
+        Ok(vec![])
     }
 }

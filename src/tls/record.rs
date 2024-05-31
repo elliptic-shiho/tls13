@@ -15,9 +15,9 @@ pub enum ContentType {
 // a direct sum structure of TLSPlaintext / TLSCiphertext / TLSInnerPlaintext
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TlsRecord {
-    ChangeCipherSpec(Vec<u8>),
-    Alert(Alert),
-    Handshake(Handshake),
+    ChangeCipherSpec(Vec<u8>, u64),
+    Alert(Alert, u64),
+    Handshake(Handshake, u64),
     ApplicationData(Vec<u8>, u64),
 }
 
@@ -34,7 +34,7 @@ impl_to_tls! {
 
     TlsRecord(self) {
         match self {
-            Self::Handshake(hs) => {
+            Self::Handshake(hs, _) => {
                 let v = hs.to_tls_vec();
                 if v.len() >= 65536 {
                     panic!();
@@ -47,7 +47,7 @@ impl_to_tls! {
                 ]
                 .concat()
             }
-            Self::Alert(al) => {
+            Self::Alert(al, _) => {
                 let v = al.to_tls_vec();
                 [
                     ContentType::Alert.to_tls_vec(), // type
@@ -57,7 +57,7 @@ impl_to_tls! {
                 ]
                 .concat()
             }
-            Self::ChangeCipherSpec(data) => {
+            Self::ChangeCipherSpec(data, _) => {
                 let v = write_tls_vec_as_vector(data, 2);
                 [
                     ContentType::ChangeCipherSpec.to_tls_vec(), // type
@@ -106,16 +106,16 @@ impl TlsRecord {
         Ok(match ctype {
             ContentType::Handshake => {
                 let (hs, v) = Handshake::from_tls_vec(v)?;
-                (Self::Handshake(hs), v)
+                (Self::Handshake(hs, 0), v)
             }
             ContentType::Alert => {
                 let (al, v) = Alert::from_tls_vec(v)?;
-                (Self::Alert(al), v)
+                (Self::Alert(al, 0), v)
             }
             ContentType::ChangeCipherSpec => {
                 let length = length as usize;
                 let (data, v) = (v[..length].to_vec(), &v[length..]);
-                (Self::ChangeCipherSpec(data), v)
+                (Self::ChangeCipherSpec(data, 0), v)
             }
             ContentType::ApplicationData => {
                 let length = length as usize;
@@ -136,11 +136,11 @@ impl TlsRecord {
         Ok(match ctype {
             ContentType::Handshake => {
                 let (hs, _) = Handshake::from_tls_vec(v)?;
-                Self::Handshake(hs)
+                Self::Handshake(hs, 0)
             }
             ContentType::Alert => {
                 let (al, _) = Alert::from_tls_vec(v)?;
-                Self::Alert(al)
+                Self::Alert(al, 0)
             }
             ContentType::ApplicationData => Self::ApplicationData(v.to_vec(), 0),
             x => {
@@ -166,7 +166,9 @@ impl TlsRecord {
     pub fn get_sequence_number(&self) -> u64 {
         match self {
             Self::ApplicationData(_, seq) => *seq,
-            _ => 0u64,
+            Self::ChangeCipherSpec(_, seq) => *seq,
+            Self::Alert(_, seq) => *seq,
+            Self::Handshake(_, seq) => *seq,
         }
     }
 }

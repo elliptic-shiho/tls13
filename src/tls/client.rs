@@ -1,6 +1,7 @@
+use crate::tls::alert::{AlertDescription, AlertLevel};
 use crate::tls::crypto::TlsKeyManager;
 use crate::tls::handshake::Finished;
-use crate::tls::{CipherSuite, ClientHello, Extension, Handshake, TlsRecord, ToTlsVec};
+use crate::tls::{Alert, CipherSuite, ClientHello, Extension, Handshake, TlsRecord, ToTlsVec};
 use crate::Result;
 use rand::prelude::*;
 use std::io::prelude::*;
@@ -37,14 +38,20 @@ impl<T: CryptoRng + RngCore> Client<T> {
 
     fn send_handshake(&mut self, hs: Handshake) -> Result<()> {
         self.keyman.handle_handshake_record_client(hs.clone());
-        self.send_record(TlsRecord::Handshake(hs))
+        self.send_record(TlsRecord::Handshake(hs, 0))
     }
 
     fn send_handshake_encrypted(&mut self, hs: Handshake) -> Result<()> {
         self.keyman.handle_handshake_record_client(hs.clone());
-        let record = TlsRecord::Handshake(hs);
+        let record = TlsRecord::Handshake(hs, self.sequence_number_client);
+        self.sequence_number_client += 1;
         let encrypted_record = self.keyman.encrypt_record(&record);
         self.send_record(encrypted_record)
+    }
+
+    fn send_record_encrypted(&mut self, record: TlsRecord) -> Result<()> {
+        let encrypted = self.keyman.encrypt_record(&record);
+        self.send_record(encrypted)
     }
 
     fn recv_raw(&mut self) -> Result<Vec<u8>> {
@@ -116,11 +123,11 @@ impl<T: CryptoRng + RngCore> Client<T> {
 
         for record in self.recv()? {
             match &record {
-                TlsRecord::Handshake(hs) => {
+                TlsRecord::Handshake(hs, _) => {
                     self.keyman.handle_handshake_record(hs.clone());
                 }
-                TlsRecord::ChangeCipherSpec(_) => {
-                    println!("[+] ChangeCipherSpec");
+                TlsRecord::ChangeCipherSpec(_, _) => {
+                    // println!("[+] ChangeCipherSpec");
                 }
                 TlsRecord::ApplicationData(_, _) => {
                     inner_plaintext.push(self.keyman.decrypt_record(&record)?);
@@ -133,7 +140,7 @@ impl<T: CryptoRng + RngCore> Client<T> {
 
         for record in &inner_plaintext {
             match &record {
-                TlsRecord::Handshake(hs) => {
+                TlsRecord::Handshake(hs, _) => {
                     self.keyman.handle_handshake_record(hs.clone());
 
                     if matches!(hs, Handshake::Finished(_)) {
@@ -156,7 +163,7 @@ impl<T: CryptoRng + RngCore> Client<T> {
         for record in self.recv()? {
             match &record {
                 TlsRecord::ApplicationData(_, _) => {
-                    dbg!(self.keyman.decrypt_record(&record)?);
+                    self.keyman.decrypt_record(&record)?;
                 }
                 x => {
                     dbg!(&x);
@@ -175,15 +182,32 @@ impl<T: CryptoRng + RngCore> Client<T> {
     }
 
     pub fn recv_tls_message(&mut self) -> Result<Vec<u8>> {
-        let records = self.recv()?;
-        for record in &records {
+        let mut res = vec![];
+        let mut records = vec![];
+        for record in &self.recv()? {
             if let TlsRecord::ApplicationData(_, _) = record {
-                dbg!(&record);
-                let decrypted = self.keyman.decrypt_record(record)?;
-                dbg!(&decrypted);
+                records.push(self.keyman.decrypt_record(record)?);
             }
         }
 
-        Ok(vec![])
+        for record in records {
+            if let TlsRecord::ApplicationData(data, _) = record {
+                res.push(data.clone());
+            }
+        }
+
+        Ok(res.concat())
+    }
+}
+
+impl<T: CryptoRng + RngCore> Drop for Client<T> {
+    fn drop(&mut self) {
+        let _ = self.send_record_encrypted(TlsRecord::Alert(
+            Alert {
+                level: AlertLevel::Fatal,
+                description: AlertDescription::CloseNotify,
+            },
+            self.sequence_number_client,
+        ));
     }
 }

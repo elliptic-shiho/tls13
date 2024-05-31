@@ -2,6 +2,7 @@ mod certificate;
 mod certificate_verify;
 mod client_hello;
 mod finished;
+mod new_session_ticket;
 mod server_hello;
 
 use crate::tls::{
@@ -14,6 +15,7 @@ pub use certificate::Certificate;
 pub use certificate_verify::CertificateVerify;
 pub use client_hello::ClientHello;
 pub use finished::Finished;
+pub use new_session_ticket::NewSessionTicket;
 pub use server_hello::ServerHello;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -23,13 +25,14 @@ pub enum ExtensionSelector {
     HelloRetryRequest,
     EncryptedExtensions,
     Certificate,
+    NewSessionTicket,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Handshake {
     ClientHello(ClientHello),
     ServerHello(ServerHello),
-    NewSessionTicket,
+    NewSessionTicket(NewSessionTicket),
     EndOfEarlyData,
     EncryptedExtensions(Vec<Extension>),
     Certificate(Certificate),
@@ -56,6 +59,13 @@ impl_to_tls! {
                     panic!();
                 }
                 [vec![2u8], (v.len() as u32).to_tls_vec()[1..].to_vec(), v].concat()
+            }
+            Self::NewSessionTicket(nst) => {
+                let v = nst.to_tls_vec();
+                if v.len() >= 16777216 {
+                    panic!();
+                }
+                [vec![4u8], (v.len() as u32).to_tls_vec()[1..].to_vec(), v].concat()
             }
             Self::EncryptedExtensions(ee) => {
                 let v = write_tls_vec_as_vector(ee, 2);
@@ -104,6 +114,10 @@ impl_from_tls! {
                 let (sh, _) = ServerHello::from_tls_vec(&v[..len])?;
                 Ok((Self::ServerHello(sh), &v[len..]))
             },
+            4u8 => {
+                let (nst, _) = NewSessionTicket::from_tls_vec(&v[..len])?;
+                Ok((Self::NewSessionTicket(nst), &v[len..]))
+            }
             8u8 => {
                 let (ee, _) = read_tls_vec_as_vector_with_selector(&v[..len], 2, &ExtensionSelector::EncryptedExtensions)?;
                 Ok((Self::EncryptedExtensions(ee), &v[len..]))

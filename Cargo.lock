@@ -760,6 +760,7 @@ dependencies = [
  "aes-gcm",
  "hex-literal",
  "hkdf",
+ "hmac",
  "num-derive",
  "num-traits",
  "p256",

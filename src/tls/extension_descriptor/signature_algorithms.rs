@@ -112,7 +112,6 @@ impl SignatureScheme {
         use p256::ecdsa::{Signature, VerifyingKey};
         match self {
             Self::ecdsa_secp256r1_sha256 => {
-                println!("{:?}", message);
                 let pubkey = p256::PublicKey::from_sec1_bytes(pubkey).unwrap();
                 let key = VerifyingKey::from(pubkey);
                 let signature = Signature::from_der(signature).unwrap(); // [RFC8446, p.43] Section 4.2.3 "Signature Algorithms"

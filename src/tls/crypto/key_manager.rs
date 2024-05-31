@@ -126,12 +126,16 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
                           dbg!(cert);
                       }*/
                 }
-                self.server_handshake_context = Some(self.transcript_hash())
+                let mut v = vec![];
+                for msg in &self.handshake_messages {
+                    v.push(msg.to_tls_vec());
+                }
+                self.server_handshake_context = Some(v.concat())
             }
             Handshake::CertificateVerify(cert_verify) => {
                 let context = self.server_handshake_context.as_ref().unwrap().to_vec();
                 let server_cert = self.server_cert.as_ref().unwrap();
-                let transcript_hash = context; // self.get_ciphersuite().hash(context.clone());
+                let transcript_hash = self.get_ciphersuite().hash(context.clone());
                 let raw = [
                     vec![0x20; 64],
                     b"TLS 1.3, server CertificateVerify".to_vec(),
@@ -159,6 +163,25 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
                         }
                     }
                     _ => todo!(),
+                }
+
+                let mut v = vec![];
+                for msg in &self.handshake_messages {
+                    v.push(msg.to_tls_vec());
+                }
+                self.server_handshake_context = Some(v.concat())
+            }
+            Handshake::Finished(fin) => {
+                let context = self.server_handshake_context.as_ref().unwrap().to_vec();
+                let transcript_hash = self.get_ciphersuite().hash(context.clone());
+                let finished_key = self.get_ciphersuite().hkdf_expand_label(
+                    self.server_handshake_traffic_secret.as_ref().unwrap(),
+                    "finished",
+                    &[],
+                    self.get_ciphersuite().hash_length(),
+                );
+                if self.get_ciphersuite().hmac(&finished_key, &transcript_hash) != fin.verify_data {
+                    panic!("Failed to verify the server finished hmac");
                 }
             }
             x => {

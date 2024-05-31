@@ -9,6 +9,7 @@ aes = "0.8.4"
 aes-gcm = "0.10.3"
 hex-literal = "0.4.1"
 hkdf = "0.12.4"
+hmac = "0.12.1"
 num-derive = "0.4.2"
 num-traits = "0.2.19"
 p256 = { version = "0.13.2", features = ["ecdh", "ecdsa"] }

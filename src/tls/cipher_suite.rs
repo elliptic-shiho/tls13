@@ -2,6 +2,7 @@ use crate::tls::{impl_from_tls, impl_to_tls, FromTlsVec, ToTlsVec};
 use crate::Result;
 
 use hkdf::Hkdf;
+use hmac::{Hmac, Mac};
 use num_derive::{FromPrimitive, ToPrimitive};
 use sha2::{Digest, Sha256, Sha384};
 
@@ -93,6 +94,21 @@ impl CipherSuite {
                 Hkdf::<Sha384>::extract(Some(salt), ikm).0.to_vec()
             }
             _ => Hkdf::<Sha256>::extract(Some(salt), ikm).0.to_vec(),
+        }
+    }
+
+    pub fn hmac(&self, key: &[u8], msg: &[u8]) -> Vec<u8> {
+        match self {
+            CipherSuite::TLS_AES_256_GCM_SHA384 => {
+                let mut hmac = Hmac::<Sha384>::new_from_slice(key).unwrap();
+                hmac.update(msg);
+                hmac.finalize().into_bytes().to_vec()
+            }
+            _ => {
+                let mut hmac = Hmac::<Sha256>::new_from_slice(key).unwrap();
+                hmac.update(msg);
+                hmac.finalize().into_bytes().to_vec()
+            }
         }
     }
 }

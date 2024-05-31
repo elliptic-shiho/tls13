@@ -2,6 +2,7 @@
 pub enum Error {
     IoError(std::io::Error),
     TlsError(String),
+    X509Error(x509_parser::error::X509Error),
 }
 
 macro_rules! error_impl {
@@ -21,8 +22,10 @@ impl std::fmt::Display for Error {
         match &self {
             Self::IoError(err) => write!(f, "{}", err),
             Self::TlsError(err) => write!(f, "{}", err),
+            Self::X509Error(err) => write!(f, "{}", err),
         }
     }
 }
 
 error_impl!(IoError, std::io::Error);
+error_impl!(X509Error, x509_parser::error::X509Error);

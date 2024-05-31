@@ -7,8 +7,8 @@ use crate::Result;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CertificateVerify {
-    algorithm: SignatureScheme,
-    signature: Vec<u8>,
+    pub algorithm: SignatureScheme,
+    pub signature: Vec<u8>,
 }
 
 impl_from_tls! {

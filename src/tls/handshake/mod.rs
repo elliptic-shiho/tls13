@@ -5,8 +5,8 @@ mod finished;
 mod server_hello;
 
 use crate::tls::{
-    impl_from_tls, impl_to_tls, read_tls_vec_as_vector_with_selector, Extension, FromTlsVec,
-    ToTlsVec,
+    impl_from_tls, impl_to_tls, read_tls_vec_as_vector_with_selector, write_tls_vec_as_vector,
+    Extension, FromTlsVec, ToTlsVec,
 };
 use crate::Result;
 
@@ -56,6 +56,34 @@ impl_to_tls! {
                     panic!();
                 }
                 [vec![2u8], (v.len() as u32).to_tls_vec()[1..].to_vec(), v].concat()
+            }
+            Self::EncryptedExtensions(ee) => {
+                let v = write_tls_vec_as_vector(ee, 2);
+                if v.len() >= 16777216 {
+                    panic!();
+                }
+                [vec![8u8], (v.len() as u32).to_tls_vec()[1..].to_vec(), v].concat()
+            }
+            Self::Certificate(cert) => {
+                let v = cert.to_tls_vec();
+                if v.len() >= 16777216 {
+                    panic!();
+                }
+                [vec![11u8], (v.len() as u32).to_tls_vec()[1..].to_vec(), v].concat()
+            }
+            Self::CertificateVerify(cert_verify) => {
+                let v = cert_verify.to_tls_vec();
+                if v.len() >= 16777216 {
+                    panic!();
+                }
+                [vec![15u8], (v.len() as u32).to_tls_vec()[1..].to_vec(), v].concat()
+            }
+            Self::Finished(fin) => {
+                let v = fin.to_tls_vec();
+                if v.len() >= 16777216 {
+                    panic!();
+                }
+                [vec![20u8], (v.len() as u32).to_tls_vec()[1..].to_vec(), v].concat()
             }
             _ => unimplemented!(),
         }

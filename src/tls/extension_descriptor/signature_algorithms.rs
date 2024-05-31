@@ -105,3 +105,22 @@ impl_from_tls! {
         Ok((res, &v[2..]))
     }
 }
+
+impl SignatureScheme {
+    pub fn verify(&self, message: &[u8], signature: &[u8], pubkey: &[u8]) -> bool {
+        use p256::ecdsa::signature::Verifier;
+        use p256::ecdsa::{Signature, VerifyingKey};
+        match self {
+            Self::ecdsa_secp256r1_sha256 => {
+                println!("{:?}", message);
+                let pubkey = p256::PublicKey::from_sec1_bytes(pubkey).unwrap();
+                let key = VerifyingKey::from(pubkey);
+                let signature = Signature::from_der(signature).unwrap(); // [RFC8446, p.43] Section 4.2.3 "Signature Algorithms"
+                key.verify(message, &signature).is_ok()
+            }
+            _ => {
+                unimplemented!()
+            }
+        }
+    }
+}

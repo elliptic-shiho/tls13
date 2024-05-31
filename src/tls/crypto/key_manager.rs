@@ -1,8 +1,10 @@
 use crate::tls::extension_descriptor::KeyShareDescriptor;
+use crate::tls::handshake::Certificate;
 use crate::tls::{CipherSuite, Extension, Handshake, ToTlsVec};
 use p256::ecdh::{EphemeralSecret, SharedSecret};
 use p256::{EncodedPoint, PublicKey};
 use rand::prelude::*;
+use x509_parser::prelude::*;
 
 pub struct TlsKeyManager<T: CryptoRng + RngCore> {
     rng: Box<T>,
@@ -17,6 +19,15 @@ pub struct TlsKeyManager<T: CryptoRng + RngCore> {
     handshake_secret: Option<Vec<u8>>,
     client_handshake_traffic_secret: Option<Vec<u8>>,
     server_handshake_traffic_secret: Option<Vec<u8>>,
+    cert_type: CertificateType,
+    server_cert: Option<Certificate>,
+    server_handshake_context: Option<Vec<u8>>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum CertificateType {
+    X509,
+    // RawPublicKey,
 }
 
 impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
@@ -34,6 +45,9 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
             handshake_secret: None,
             client_handshake_traffic_secret: None,
             server_handshake_traffic_secret: None,
+            cert_type: CertificateType::X509,
+            server_cert: None,
+            server_handshake_context: None,
         }
     }
 
@@ -99,6 +113,54 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
                 self.update_handshake_secret();
             }
             Handshake::ClientHello(_) => {}
+            Handshake::EncryptedExtensions(ee) => {
+                if !ee.is_empty() {
+                    dbg!(ee);
+                }
+            }
+            Handshake::Certificate(cert) => {
+                match self.cert_type {
+                    CertificateType::X509 => {
+                        self.server_cert = Some(cert.clone());
+                    } /* CertificateType::RawPublicKey => {
+                          dbg!(cert);
+                      }*/
+                }
+                self.server_handshake_context = Some(self.transcript_hash())
+            }
+            Handshake::CertificateVerify(cert_verify) => {
+                let context = self.server_handshake_context.as_ref().unwrap().to_vec();
+                let server_cert = self.server_cert.as_ref().unwrap();
+                let transcript_hash = context; // self.get_ciphersuite().hash(context.clone());
+                let raw = [
+                    vec![0x20; 64],
+                    b"TLS 1.3, server CertificateVerify".to_vec(),
+                    vec![0],
+                    transcript_hash,
+                ]
+                .concat();
+
+                let raw_cert = server_cert
+                    .certificate_list
+                    .last()
+                    .as_ref()
+                    .unwrap()
+                    .cert_data
+                    .clone();
+                let x509_cert = X509Certificate::from_der(&raw_cert).unwrap().1;
+
+                match x509_cert.public_key().parsed().unwrap() {
+                    x509_parser::public_key::PublicKey::EC(point) => {
+                        if !cert_verify
+                            .algorithm
+                            .verify(&raw, &cert_verify.signature, point.data())
+                        {
+                            panic!("Failed to verify the server certificate");
+                        }
+                    }
+                    _ => todo!(),
+                }
+            }
             x => {
                 dbg!(&x);
             }

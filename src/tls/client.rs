@@ -102,6 +102,8 @@ impl<T: CryptoRng + RngCore> Client<T> {
         );
         self.send_handshake(Handshake::ClientHello(ch))?;
 
+        let mut inner_plaintext = vec![];
+
         for record in self.recv()? {
             match &record {
                 TlsRecord::Handshake(hs) => {
@@ -116,7 +118,18 @@ impl<T: CryptoRng + RngCore> Client<T> {
                     let decrypted =
                         self.keyman
                             .decrypt_handshake(encrypted, &nonce, &additional_data);
-                    dbg!(TlsRecord::parse_inner_plaintext(&decrypted)?);
+                    inner_plaintext.push(TlsRecord::parse_inner_plaintext(&decrypted)?);
+                }
+                x => {
+                    dbg!(&x);
+                }
+            }
+        }
+
+        for record in inner_plaintext {
+            match &record {
+                TlsRecord::Handshake(hs) => {
+                    self.keyman.handle_handshake_record(hs.clone());
                 }
                 x => {
                     dbg!(&x);

@@ -7,14 +7,14 @@ use crate::Result;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Certificate {
-    certificate_request_context: Vec<u8>,
-    certificate_list: Vec<CertificateEntry>,
+    pub certificate_request_context: Vec<u8>,
+    pub certificate_list: Vec<CertificateEntry>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CertificateEntry {
-    cert_data: Vec<u8>,
-    extensions: Vec<Extension>,
+    pub cert_data: Vec<u8>,
+    pub extensions: Vec<Extension>,
 }
 
 impl_from_tls! {

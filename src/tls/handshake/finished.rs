@@ -3,7 +3,7 @@ use crate::Result;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Finished {
-    verify_data: Vec<u8>,
+    pub verify_data: Vec<u8>,
 }
 
 impl_from_tls! {

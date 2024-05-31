@@ -1,6 +1,8 @@
 use crate::tls::{impl_from_tls, impl_to_tls, FromTlsVec, ToTlsVec};
 use crate::Result;
 
+use aes_gcm::aead::{Aead, KeyInit, Payload};
+use aes_gcm::{Aes128Gcm, Key, Nonce};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use num_derive::{FromPrimitive, ToPrimitive};
@@ -39,6 +41,52 @@ impl CipherSuite {
         match self {
             CipherSuite::TLS_AES_256_GCM_SHA384 => 48,
             _ => 32,
+        }
+    }
+
+    pub fn iv_length(&self) -> usize {
+        match self {
+            Self::TLS_AES_128_GCM_SHA256 => 12,
+            _ => todo!(),
+        }
+    }
+
+    pub fn key_length(&self) -> usize {
+        match self {
+            Self::TLS_AES_128_GCM_SHA256 => 16,
+            _ => todo!(),
+        }
+    }
+
+    pub fn encrypt(&self, key: &[u8], plaintext: &[u8], nonce: &[u8], aad: &[u8]) -> Vec<u8> {
+        match self {
+            Self::TLS_AES_128_GCM_SHA256 => {
+                let key = Key::<Aes128Gcm>::from_slice(key);
+                let cipher = Aes128Gcm::new(key);
+                let payload = Payload {
+                    msg: plaintext,
+                    aad,
+                };
+
+                cipher.encrypt(Nonce::from_slice(nonce), payload).unwrap()
+            }
+            _ => todo!(),
+        }
+    }
+
+    pub fn decrypt(&self, key: &[u8], ciphertext: &[u8], nonce: &[u8], aad: &[u8]) -> Vec<u8> {
+        match self {
+            Self::TLS_AES_128_GCM_SHA256 => {
+                let key = Key::<Aes128Gcm>::from_slice(key);
+                let cipher = Aes128Gcm::new(key);
+                let payload = Payload {
+                    msg: ciphertext,
+                    aad,
+                };
+
+                cipher.decrypt(Nonce::from_slice(nonce), payload).unwrap()
+            }
+            _ => todo!(),
         }
     }
 
@@ -100,12 +148,12 @@ impl CipherSuite {
     pub fn hmac(&self, key: &[u8], msg: &[u8]) -> Vec<u8> {
         match self {
             CipherSuite::TLS_AES_256_GCM_SHA384 => {
-                let mut hmac = Hmac::<Sha384>::new_from_slice(key).unwrap();
+                let mut hmac = <Hmac<Sha384> as Mac>::new_from_slice(key).unwrap();
                 hmac.update(msg);
                 hmac.finalize().into_bytes().to_vec()
             }
             _ => {
-                let mut hmac = Hmac::<Sha256>::new_from_slice(key).unwrap();
+                let mut hmac = <Hmac<Sha256> as Mac>::new_from_slice(key).unwrap();
                 hmac.update(msg);
                 hmac.finalize().into_bytes().to_vec()
             }

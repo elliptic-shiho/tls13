@@ -22,6 +22,9 @@ pub struct TlsKeyManager<T: CryptoRng + RngCore> {
     cert_type: CertificateType,
     server_cert: Option<Certificate>,
     server_handshake_context: Option<Vec<u8>>,
+    master_secret: Option<Vec<u8>>,
+    client_application_traffic_secret: Option<Vec<u8>>,
+    server_application_traffic_secret: Option<Vec<u8>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -48,6 +51,9 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
             cert_type: CertificateType::X509,
             server_cert: None,
             server_handshake_context: None,
+            master_secret: None,
+            client_application_traffic_secret: None,
+            server_application_traffic_secret: None,
         }
     }
 
@@ -122,9 +128,7 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
                 match self.cert_type {
                     CertificateType::X509 => {
                         self.server_cert = Some(cert.clone());
-                    } /* CertificateType::RawPublicKey => {
-                          dbg!(cert);
-                      }*/
+                    }
                 }
                 let mut v = vec![];
                 for msg in &self.handshake_messages {
@@ -133,6 +137,7 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
                 self.server_handshake_context = Some(v.concat())
             }
             Handshake::CertificateVerify(cert_verify) => {
+                // [RFC8446] Section 4.4.3 "CertificateVerify"
                 let context = self.server_handshake_context.as_ref().unwrap().to_vec();
                 let server_cert = self.server_cert.as_ref().unwrap();
                 let transcript_hash = self.get_ciphersuite().hash(context.clone());
@@ -172,17 +177,34 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
                 self.server_handshake_context = Some(v.concat())
             }
             Handshake::Finished(fin) => {
+                // [RFC8446] Section 4.4.4 "Finished"
+                let cs = self.get_ciphersuite();
                 let context = self.server_handshake_context.as_ref().unwrap().to_vec();
-                let transcript_hash = self.get_ciphersuite().hash(context.clone());
-                let finished_key = self.get_ciphersuite().hkdf_expand_label(
+                let transcript_hash = cs.hash(context.clone());
+                let finished_key = cs.hkdf_expand_label(
                     self.server_handshake_traffic_secret.as_ref().unwrap(),
                     "finished",
                     &[],
-                    self.get_ciphersuite().hash_length(),
+                    cs.hash_length(),
                 );
-                if self.get_ciphersuite().hmac(&finished_key, &transcript_hash) != fin.verify_data {
+
+                if cs.hmac(&finished_key, &transcript_hash) != fin.verify_data {
                     panic!("Failed to verify the server finished hmac");
                 }
+
+                let master_secret = cs.hkdf_extract(
+                    &self.derive_secret_with_empty_msg(
+                        self.handshake_secret.as_ref().unwrap(),
+                        "derived",
+                    ),
+                    &self.zero_vector(),
+                );
+
+                self.client_application_traffic_secret =
+                    Some(self.derive_secret(&master_secret, "c ap traffic"));
+                self.server_application_traffic_secret =
+                    Some(self.derive_secret(&master_secret, "s ap traffic"));
+                self.master_secret = Some(master_secret);
             }
             x => {
                 dbg!(&x);
@@ -196,20 +218,18 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
         nonce: &[u8],
         additional_data: &[u8],
     ) -> Vec<u8> {
-        use aes_gcm::aead::{Aead, KeyInit, Payload};
-        use aes_gcm::{Aes128Gcm, Key, Nonce};
-
-        let key = self.get_ciphersuite().hkdf_expand_label(
+        let cs = self.get_ciphersuite();
+        let key = cs.hkdf_expand_label(
             self.server_handshake_traffic_secret.as_ref().unwrap(),
             "key",
             &[],
-            16,
+            cs.key_length(),
         );
-        let iv = self.get_ciphersuite().hkdf_expand_label(
+        let iv = cs.hkdf_expand_label(
             self.server_handshake_traffic_secret.as_ref().unwrap(),
             "iv",
             &[],
-            12,
+            cs.iv_length(),
         );
 
         let mut nonce = [vec![0; iv.len() - nonce.len()], nonce.to_vec()].concat();
@@ -217,14 +237,35 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
             nonce[i] ^= iv[i];
         }
 
-        let key = Key::<Aes128Gcm>::from_slice(&key);
-        let cipher = Aes128Gcm::new(key);
-        let payload = Payload {
-            msg: ciphertext,
-            aad: additional_data,
-        };
+        cs.decrypt(&key, ciphertext, &nonce, additional_data)
+    }
 
-        cipher.decrypt(Nonce::from_slice(&nonce), payload).unwrap()
+    pub fn encrypt_application_data(
+        &mut self,
+        plaintext: &[u8],
+        nonce: &[u8],
+        additional_data: &[u8],
+    ) -> Vec<u8> {
+        let cs = self.get_ciphersuite();
+        let key = cs.hkdf_expand_label(
+            self.server_handshake_traffic_secret.as_ref().unwrap(),
+            "key",
+            &[],
+            cs.key_length(),
+        );
+        let iv = cs.hkdf_expand_label(
+            self.server_handshake_traffic_secret.as_ref().unwrap(),
+            "iv",
+            &[],
+            cs.iv_length(),
+        );
+
+        let mut nonce = [vec![0; iv.len() - nonce.len()], nonce.to_vec()].concat();
+        for i in 0..nonce.len() {
+            nonce[i] ^= iv[i];
+        }
+
+        cs.encrypt(&key, plaintext, &nonce, additional_data)
     }
 
     // [RFC8446, p.93] Section 7.1 "Key Schedule"

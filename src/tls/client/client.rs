@@ -67,10 +67,11 @@ impl<T: CryptoRng + RngCore> Client<T> {
     pub fn handshake(&mut self) -> Result<Vec<u8>> {
         let ch = self.create_client_hello();
         let hs = Handshake::ClientHello(ch);
-        self.keyman.handle_handshake_record_client(hs.clone());
-        self.state = self.handshake_state_transition(hs.clone())?;
         let seq = self.incr_sequence_number_client();
-        self.send_record(TlsRecord::Handshake(hs, seq))?;
+        self.send_record(TlsRecord::Handshake(hs.clone(), seq))?;
+
+        self.keyman.handle_handshake_record_client(hs.clone());
+        self.state = self.handshake_state_transition(hs)?;
 
         for record in self.recv()? {
             self.handle_record_from_server(record, true)?;
@@ -213,15 +214,14 @@ impl<T: CryptoRng + RngCore> Client<T> {
                 let hs = Handshake::Finished(Finished {
                     verify_data: self.keyman.get_verify_data(),
                 });
-                self.keyman.handle_handshake_record_client(hs.clone());
+                // Client's Finished record must be sent before key-rotation
+                // so handle_handshake_record_client is placed at after the send_record
                 self.send_record(TlsRecord::Handshake(hs.clone(), seq))?;
+                self.keyman.handle_handshake_record_client(hs.clone());
 
                 // Reset sequence number to encrypt / decrypt ApplicationData
                 self.sequence_number_server = 0;
                 self.sequence_number_client = 0;
-
-                // Change secret to ApplicationData's one
-                self.keyman.finish_handshake();
 
                 ClientState::Connected
             }

@@ -1,8 +1,9 @@
 use crate::tls::{impl_from_tls, impl_to_tls, FromTlsVec, ToTlsVec};
 use crate::Result;
 
-use aes_gcm::aead::{Aead, KeyInit, Payload};
+use aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes128Gcm, Aes256Gcm, Key, Nonce};
+use chacha20poly1305::ChaCha20Poly1305;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use num_derive::{FromPrimitive, ToPrimitive};
@@ -48,6 +49,7 @@ impl CipherSuite {
         match self {
             Self::TLS_AES_128_GCM_SHA256 => 12,
             Self::TLS_AES_256_GCM_SHA384 => 12,
+            Self::TLS_CHACHA20_POLY1305_SHA256 => 12,
             _ => todo!(),
         }
     }
@@ -56,6 +58,7 @@ impl CipherSuite {
         match self {
             Self::TLS_AES_128_GCM_SHA256 => 16,
             Self::TLS_AES_256_GCM_SHA384 => 32,
+            Self::TLS_CHACHA20_POLY1305_SHA256 => 32,
             _ => todo!(),
         }
     }
@@ -64,58 +67,51 @@ impl CipherSuite {
         match self {
             Self::TLS_AES_128_GCM_SHA256 => 16,
             Self::TLS_AES_256_GCM_SHA384 => 16,
+            Self::TLS_CHACHA20_POLY1305_SHA256 => 16,
             _ => todo!(),
         }
     }
 
     pub fn encrypt(&self, key: &[u8], plaintext: &[u8], nonce: &[u8], aad: &[u8]) -> Vec<u8> {
+        let payload = Payload {
+            msg: plaintext,
+            aad,
+        };
+
+        macro_rules! impl_arm {
+            ($name:tt) => {{
+                let key = Key::<$name>::from_slice(key);
+                let cipher = $name::new(key);
+                cipher.encrypt(Nonce::from_slice(nonce), payload).unwrap()
+            }};
+        }
+
         match self {
-            Self::TLS_AES_128_GCM_SHA256 => {
-                let key = Key::<Aes128Gcm>::from_slice(key);
-                let cipher = Aes128Gcm::new(key);
-                let payload = Payload {
-                    msg: plaintext,
-                    aad,
-                };
-
-                cipher.encrypt(Nonce::from_slice(nonce), payload).unwrap()
-            }
-            Self::TLS_AES_256_GCM_SHA384 => {
-                let key = Key::<Aes256Gcm>::from_slice(key);
-                let cipher = Aes256Gcm::new(key);
-                let payload = Payload {
-                    msg: plaintext,
-                    aad,
-                };
-
-                cipher.encrypt(Nonce::from_slice(nonce), payload).unwrap()
-            }
+            Self::TLS_AES_128_GCM_SHA256 => impl_arm!(Aes128Gcm),
+            Self::TLS_AES_256_GCM_SHA384 => impl_arm!(Aes256Gcm),
+            Self::TLS_CHACHA20_POLY1305_SHA256 => impl_arm!(ChaCha20Poly1305),
             _ => todo!(),
         }
     }
 
     pub fn decrypt(&self, key: &[u8], ciphertext: &[u8], nonce: &[u8], aad: &[u8]) -> Vec<u8> {
+        let payload = Payload {
+            msg: ciphertext,
+            aad,
+        };
+
+        macro_rules! impl_arm {
+            ($name:tt) => {{
+                let key = Key::<$name>::from_slice(key);
+                let cipher = $name::new(key);
+                cipher.decrypt(Nonce::from_slice(nonce), payload).unwrap()
+            }};
+        }
+
         match self {
-            Self::TLS_AES_128_GCM_SHA256 => {
-                let key = Key::<Aes128Gcm>::from_slice(key);
-                let cipher = Aes128Gcm::new(key);
-                let payload = Payload {
-                    msg: ciphertext,
-                    aad,
-                };
-
-                cipher.decrypt(Nonce::from_slice(nonce), payload).unwrap()
-            }
-            Self::TLS_AES_256_GCM_SHA384 => {
-                let key = Key::<Aes256Gcm>::from_slice(key);
-                let cipher = Aes256Gcm::new(key);
-                let payload = Payload {
-                    msg: ciphertext,
-                    aad,
-                };
-
-                cipher.decrypt(Nonce::from_slice(nonce), payload).unwrap()
-            }
+            Self::TLS_AES_128_GCM_SHA256 => impl_arm!(Aes128Gcm),
+            Self::TLS_AES_256_GCM_SHA384 => impl_arm!(Aes256Gcm),
+            Self::TLS_CHACHA20_POLY1305_SHA256 => impl_arm!(ChaCha20Poly1305),
             _ => todo!(),
         }
     }

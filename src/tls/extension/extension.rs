@@ -1,9 +1,10 @@
-use crate::tls::extension_descriptor::{
+use crate::tls::extension::descriptor::{
     KeyShareDescriptor, ServerNameDescriptor, SignatureAlgorithmsDescriptor,
     SupportedGroupsDescriptor, SupportedVersionsDescriptor,
 };
 use crate::tls::{
-    impl_from_tls_with_selector, impl_to_tls, FromTlsVec, FromTlsVecWithSelector, ToTlsVec,
+    impl_from_tls_with_selector, impl_to_tls, ExtensionSelector, FromTlsVec,
+    FromTlsVecWithSelector, ToTlsVec,
 };
 use crate::Result;
 
@@ -63,7 +64,7 @@ impl_to_tls! {
 }
 
 impl_from_tls_with_selector! {
-    Extension<crate::tls::handshake::ExtensionSelector>(v, selector) {
+    Extension<ExtensionSelector>(v, selector) {
         let (ext_type, v) = u16::from_tls_vec(v)?;
         let (len, v) = u16::from_tls_vec(v)?;
         let (extension_data, v) = (&v[..(len as usize)], &v[(len as usize)..]);

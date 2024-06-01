@@ -1,6 +1,6 @@
-use crate::tls::{
-    impl_from_tls, impl_to_tls, write_tls_vec_as_vector, Alert, FromTlsVec, Handshake, ToTlsVec,
-};
+use crate::tls::handshake::Handshake;
+use crate::tls::protocol::Alert;
+use crate::tls::{impl_from_tls, impl_to_tls, write_tls_vec_as_vector, FromTlsVec, ToTlsVec};
 use crate::Result;
 
 #[derive(Debug, PartialEq, Eq)]

@@ -1,8 +1,7 @@
-use crate::tls::extension_descriptor::NamedGroup;
-use crate::tls::handshake::ExtensionSelector;
+use crate::tls::extension::descriptor::NamedGroup;
 use crate::tls::{
     impl_from_tls, impl_from_tls_with_selector, impl_to_tls, read_tls_vec_as_vector,
-    write_tls_vec_as_vector, FromTlsVec, FromTlsVecWithSelector, ToTlsVec,
+    write_tls_vec_as_vector, ExtensionSelector, FromTlsVec, FromTlsVecWithSelector, ToTlsVec,
 };
 use crate::Result;
 

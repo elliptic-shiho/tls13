@@ -1,6 +1,6 @@
-use crate::tls::extension_descriptor::KeyShareDescriptor;
-use crate::tls::handshake::Certificate;
-use crate::tls::{CipherSuite, Extension, Handshake, TlsRecord, ToTlsVec};
+use crate::tls::extension::descriptor::KeyShareDescriptor;
+use crate::tls::handshake::{Certificate, Handshake};
+use crate::tls::{CipherSuite, Extension, TlsRecord, ToTlsVec};
 use crate::Result;
 use p256::ecdh::{EphemeralSecret, SharedSecret};
 use p256::{EncodedPoint, PublicKey};

@@ -1,22 +1,19 @@
 use crate::Result;
-mod alert;
-mod cipher_suite;
 mod client;
-pub mod crypto;
+mod crypto;
+mod error;
 mod extension;
-pub mod extension_descriptor;
 mod handshake;
 mod macro_defs;
-mod record;
+mod protocol;
 mod util;
 
-pub use alert::Alert;
-pub use cipher_suite::CipherSuite;
 pub use client::Client;
-pub use extension::Extension;
-pub use handshake::{ClientHello, Handshake, ServerHello};
+pub use crypto::CipherSuite;
+pub use error::Error;
+pub use extension::{Extension, ExtensionSelector};
 pub(crate) use macro_defs::{impl_from_tls, impl_from_tls_with_selector, impl_to_tls};
-pub use record::TlsRecord;
+pub use protocol::TlsRecord;
 pub use util::{
     read_tls_vec_as_vector, read_tls_vec_as_vector_with_selector, write_tls_vec_as_vector,
 };

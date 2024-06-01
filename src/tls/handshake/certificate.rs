@@ -1,7 +1,6 @@
-use crate::tls::handshake::ExtensionSelector;
 use crate::tls::{
     impl_from_tls, impl_to_tls, read_tls_vec_as_vector, read_tls_vec_as_vector_with_selector,
-    write_tls_vec_as_vector, Extension, FromTlsVec, ToTlsVec,
+    write_tls_vec_as_vector, Extension, ExtensionSelector, FromTlsVec, ToTlsVec,
 };
 use crate::Result;
 

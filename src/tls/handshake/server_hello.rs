@@ -1,6 +1,6 @@
 use crate::tls::{
     impl_from_tls, impl_to_tls, read_tls_vec_as_vector, read_tls_vec_as_vector_with_selector,
-    write_tls_vec_as_vector, CipherSuite, Extension, FromTlsVec, ToTlsVec,
+    write_tls_vec_as_vector, CipherSuite, Extension, ExtensionSelector, FromTlsVec, ToTlsVec,
 };
 use crate::Result;
 
@@ -24,7 +24,7 @@ impl_from_tls! {
         let (extensions, v) = read_tls_vec_as_vector_with_selector(
             v,
             2,
-            &crate::tls::handshake::ExtensionSelector::ServerHello,
+            &ExtensionSelector::ServerHello,
         )?;
 
         Ok((

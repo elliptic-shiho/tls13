@@ -1,3 +1,3 @@
-mod key_manager;
+mod cipher_suite;
 
-pub use key_manager::TlsKeyManager;
+pub use cipher_suite::CipherSuite;

@@ -1,7 +1,12 @@
-use crate::tls::alert::{AlertDescription, AlertLevel};
-use crate::tls::crypto::TlsKeyManager;
-use crate::tls::handshake::Finished;
-use crate::tls::{Alert, CipherSuite, ClientHello, Extension, Handshake, TlsRecord, ToTlsVec};
+use crate::tls::client::TlsKeyManager;
+use crate::tls::extension::descriptor::{
+    KeyShareDescriptor, KeyShareEntry, NamedGroup, ServerName, ServerNameDescriptor,
+    SignatureAlgorithmsDescriptor, SignatureScheme, SupportedGroupsDescriptor,
+    SupportedVersionsDescriptor,
+};
+use crate::tls::handshake::{ClientHello, Finished, Handshake};
+use crate::tls::protocol::{Alert, AlertDescription, AlertLevel, TlsRecord};
+use crate::tls::{CipherSuite, Extension, ToTlsVec};
 use crate::Result;
 use rand::prelude::*;
 use std::io::prelude::*;
@@ -94,7 +99,6 @@ impl<T: CryptoRng + RngCore> Client<T> {
     }
 
     pub fn handshake(&mut self) -> Result<Vec<TlsRecord>> {
-        use crate::tls::extension_descriptor::*;
         let ch = ClientHello::new(
             self.keyman.gen_client_random(),
             vec![CipherSuite::TLS_AES_128_GCM_SHA256],

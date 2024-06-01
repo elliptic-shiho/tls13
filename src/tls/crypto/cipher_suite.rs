@@ -46,6 +46,8 @@ impl CipherSuite {
     }
 
     pub fn iv_length(&self) -> usize {
+        // [RFC5116] for AES
+        // [RFC8439] for ChaCha20-Poly1305
         match self {
             Self::TLS_AES_128_GCM_SHA256 => 12,
             Self::TLS_AES_256_GCM_SHA384 => 12,
@@ -55,6 +57,8 @@ impl CipherSuite {
     }
 
     pub fn key_length(&self) -> usize {
+        // [RFC5116] for AES
+        // [RFC8439] for ChaCha20-Poly1305
         match self {
             Self::TLS_AES_128_GCM_SHA256 => 16,
             Self::TLS_AES_256_GCM_SHA384 => 32,
@@ -64,6 +68,8 @@ impl CipherSuite {
     }
 
     pub fn tag_length(&self) -> usize {
+        // [RFC5116] for AES
+        // [RFC8439] for ChaCha20-Poly1305
         match self {
             Self::TLS_AES_128_GCM_SHA256 => 16,
             Self::TLS_AES_256_GCM_SHA384 => 16,
@@ -184,6 +190,11 @@ impl CipherSuite {
                 hmac.finalize().into_bytes().to_vec()
             }
         }
+    }
+
+    // [RFC8446, p.91] Section 7.1 "Key Schedule"
+    pub fn derive_secret(&self, secret: &[u8], label: &str, msg: &[u8]) -> Vec<u8> {
+        self.hkdf_expand_label(secret, label, &self.hash(msg.to_vec()), self.hash_length())
     }
 }
 

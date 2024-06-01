@@ -239,7 +239,7 @@ impl<T: CryptoRng + RngCore> Client<T> {
 
     fn create_client_hello(&mut self) -> ClientHello {
         ClientHello::new(
-            self.keyman.gen_client_random(),
+            self.keyman.gen_random_bytes(32),
             vec![CipherSuite::TLS_CHACHA20_POLY1305_SHA256],
             vec![
                 Extension::ServerName(ServerNameDescriptor {

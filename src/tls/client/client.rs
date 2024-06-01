@@ -8,6 +8,7 @@ use crate::tls::handshake::{ClientHello, Finished, Handshake};
 use crate::tls::protocol::{Alert, AlertDescription, AlertLevel, TlsRecord};
 use crate::tls::{CipherSuite, Extension, ToTlsVec};
 use crate::Result;
+use hex_literal::hex;
 use rand::prelude::*;
 use std::io::prelude::*;
 use std::net::TcpStream;
@@ -18,6 +19,26 @@ pub struct Client<T: CryptoRng + RngCore> {
     keyman: TlsKeyManager<T>,
     sequence_number_client: u64,
     sequence_number_server: u64,
+    state: ClientState,
+    psk: Option<Vec<u8>>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ClientState {
+    Start,
+    WaitServerHello,
+    WaitEncryptedExtensions,
+    WaitCertificateRequest,
+    WaitCertificate,
+    WaitCertificateVerify,
+    WaitFinished,
+    Connected,
+}
+
+impl ClientState {
+    pub fn can_encrypt(&self) -> bool {
+        !matches!(self, Self::Start | Self::WaitServerHello)
+    }
 }
 
 impl<T: CryptoRng + RngCore> Client<T> {
@@ -33,30 +54,62 @@ impl<T: CryptoRng + RngCore> Client<T> {
             keyman,
             sequence_number_client: 0,
             sequence_number_server: 0,
+            state: ClientState::Start,
+            psk: None,
         })
     }
 
+    pub fn set_psk(&mut self, psk: &[u8]) {
+        self.keyman.set_psk(psk.to_vec());
+        self.psk = Some(psk.to_vec())
+    }
+
+    pub fn handshake(&mut self) -> Result<Vec<u8>> {
+        let ch = self.create_client_hello();
+        let hs = Handshake::ClientHello(ch);
+        self.keyman.handle_handshake_record_client(hs.clone());
+        self.state = self.handshake_state_transition(hs.clone())?;
+        let seq = self.incr_sequence_number_client();
+        self.send_record(TlsRecord::Handshake(hs, seq))?;
+
+        for record in self.recv()? {
+            self.handle_record_from_server(record, true)?;
+        }
+
+        assert_eq!(self.state, ClientState::Connected);
+
+        let mut ret = vec![];
+        for record in self.recv()? {
+            ret.push(self.handle_record_from_server(record, true)?);
+        }
+
+        Ok(ret.concat())
+    }
+
+    pub fn send_tls_message(&mut self, v: &[u8]) -> Result<()> {
+        let seq = self.incr_sequence_number_client();
+        self.send_record(TlsRecord::ApplicationData(v.to_vec(), seq))
+    }
+
+    pub fn recv_tls_message(&mut self) -> Result<Vec<u8>> {
+        let mut res = vec![];
+        for record in self.recv()? {
+            if let TlsRecord::ApplicationData(data, _) = record {
+                res.push(data);
+            }
+        }
+
+        Ok(res.concat())
+    }
+
     fn send_record(&mut self, record: TlsRecord) -> Result<()> {
+        let record = if self.state.can_encrypt() {
+            self.keyman.encrypt_record(&record)
+        } else {
+            record
+        };
         self.conn.write_all(&record.to_tls_vec())?;
         Ok(())
-    }
-
-    fn send_handshake(&mut self, hs: Handshake) -> Result<()> {
-        self.keyman.handle_handshake_record_client(hs.clone());
-        self.send_record(TlsRecord::Handshake(hs, 0))
-    }
-
-    fn send_handshake_encrypted(&mut self, hs: Handshake) -> Result<()> {
-        self.keyman.handle_handshake_record_client(hs.clone());
-        let record = TlsRecord::Handshake(hs, self.sequence_number_client);
-        self.sequence_number_client += 1;
-        let encrypted_record = self.keyman.encrypt_record(&record);
-        self.send_record(encrypted_record)
-    }
-
-    fn send_record_encrypted(&mut self, record: TlsRecord) -> Result<()> {
-        let encrypted = self.keyman.encrypt_record(&record);
-        self.send_record(encrypted)
     }
 
     fn recv_raw(&mut self) -> Result<Vec<u8>> {
@@ -98,8 +151,94 @@ impl<T: CryptoRng + RngCore> Client<T> {
         Ok(records)
     }
 
-    pub fn handshake(&mut self) -> Result<Vec<TlsRecord>> {
-        let ch = ClientHello::new(
+    // [RFC8446] Section A.1 "Client"
+    fn handshake_state_transition(&mut self, hs: Handshake) -> Result<ClientState> {
+        Ok(match (&self.state, hs) {
+            (&ClientState::Start, Handshake::ClientHello(ch)) => {
+                let mut found_early_data = false;
+                let mut found_psk = false;
+                for extension in &ch.extensions {
+                    found_early_data |= matches!(extension, Extension::EarlyData);
+                    found_psk |= matches!(extension, Extension::PreSharedKey);
+                }
+                if found_early_data && found_psk {
+                    ClientState::WaitFinished
+                } else {
+                    ClientState::WaitServerHello
+                }
+            }
+            (&ClientState::WaitServerHello, Handshake::ServerHello(sh)) => {
+                // [RFC8446] Section 4.1.3 "Server Hello"
+                const SPECIAL_RANDOM: [u8; 32] =
+                    hex!("CF21AD74E59A6111BE1D8C021E65B891C2A211167ABB8C5E079E09E2C8A8339C");
+                const DOWNGRADE_RANDOM: [u8; 8] = hex!("444F574E47524400");
+                if sh.random == SPECIAL_RANDOM {
+                    // HelloRetryRequest
+                    ClientState::Start
+                } else if sh.random[24..] == DOWNGRADE_RANDOM {
+                    // Downgrade to TLS 1.2 is disabled
+                    let _ = self.send_record(TlsRecord::Alert(
+                        Alert {
+                            level: AlertLevel::Fatal,
+                            description: AlertDescription::IllegalParameter,
+                        },
+                        0,
+                    ));
+                    panic!();
+                } else {
+                    ClientState::WaitEncryptedExtensions
+                }
+            }
+            (&ClientState::WaitEncryptedExtensions, Handshake::EncryptedExtensions(_)) => {
+                if self.psk.is_some() {
+                    ClientState::WaitFinished
+                } else {
+                    ClientState::WaitCertificateRequest
+                }
+            }
+            (&ClientState::WaitCertificateRequest, Handshake::CertificateRequest) => {
+                ClientState::WaitCertificate
+            }
+            (&ClientState::WaitCertificateRequest, Handshake::Certificate(_)) => {
+                ClientState::WaitCertificateVerify
+            }
+            (&ClientState::WaitCertificate, Handshake::Certificate(_)) => {
+                ClientState::WaitCertificateVerify
+            }
+            (&ClientState::WaitCertificateVerify, Handshake::CertificateVerify(_)) => {
+                ClientState::WaitFinished
+            }
+            (&ClientState::WaitFinished, Handshake::Finished(_)) => {
+                let seq = self.incr_sequence_number_client();
+                let hs = Handshake::Finished(Finished {
+                    verify_data: self.keyman.get_verify_data(),
+                });
+                self.keyman.handle_handshake_record_client(hs.clone());
+                self.send_record(TlsRecord::Handshake(hs.clone(), seq))?;
+
+                // Reset sequence number to encrypt / decrypt ApplicationData
+                self.sequence_number_server = 0;
+                self.sequence_number_client = 0;
+
+                // Change secret to ApplicationData's one
+                self.keyman.finish_handshake();
+
+                ClientState::Connected
+            }
+            (&ClientState::Connected, _) => {
+                // ignore
+                ClientState::Connected
+            }
+            (state, hs) => {
+                dbg!(state);
+                dbg!(hs);
+                panic!("Invalid State");
+            }
+        })
+    }
+
+    fn create_client_hello(&mut self) -> ClientHello {
+        ClientHello::new(
             self.keyman.gen_client_random(),
             vec![CipherSuite::TLS_AES_128_GCM_SHA256],
             vec![
@@ -120,93 +259,54 @@ impl<T: CryptoRng + RngCore> Client<T> {
                     key_exchange: self.keyman.gen_client_pubkey().to_bytes().to_vec(),
                 }])),
             ],
-        );
-        self.send_handshake(Handshake::ClientHello(ch))?;
-
-        let mut inner_plaintext = vec![];
-
-        for record in self.recv()? {
-            match &record {
-                TlsRecord::Handshake(hs, _) => {
-                    self.keyman.handle_handshake_record(hs.clone());
-                }
-                TlsRecord::ChangeCipherSpec(_, _) => {
-                    // println!("[+] ChangeCipherSpec");
-                }
-                TlsRecord::ApplicationData(_, _) => {
-                    inner_plaintext.push(self.keyman.decrypt_record(&record)?);
-                }
-                x => {
-                    dbg!(&x);
-                }
-            }
-        }
-
-        for record in &inner_plaintext {
-            match &record {
-                TlsRecord::Handshake(hs, _) => {
-                    self.keyman.handle_handshake_record(hs.clone());
-
-                    if matches!(hs, Handshake::Finished(_)) {
-                        self.send_handshake_encrypted(Handshake::Finished(Finished {
-                            verify_data: self.keyman.get_verify_data(),
-                        }))?;
-                        break;
-                    }
-                }
-                x => {
-                    dbg!(&x);
-                }
-            }
-        }
-
-        self.sequence_number_server = 0;
-        self.sequence_number_client = 0;
-        self.keyman.finish_handshake();
-
-        for record in self.recv()? {
-            match &record {
-                TlsRecord::ApplicationData(_, _) => {
-                    self.keyman.decrypt_record(&record)?;
-                }
-                x => {
-                    dbg!(&x);
-                }
-            }
-        }
-
-        Ok(vec![])
+        )
     }
 
-    pub fn send_tls_message(&mut self, v: &[u8]) -> Result<()> {
-        let record = TlsRecord::ApplicationData(v.to_vec(), self.sequence_number_client);
-        self.sequence_number_client += 1;
-        let encrypted = self.keyman.encrypt_record(&record);
-        self.send_record(encrypted)
+    fn incr_sequence_number_client(&mut self) -> u64 {
+        let ret = self.sequence_number_client;
+        if self.state.can_encrypt() {
+            self.sequence_number_client += 1;
+        }
+        ret
     }
 
-    pub fn recv_tls_message(&mut self) -> Result<Vec<u8>> {
-        let mut res = vec![];
-        let mut records = vec![];
-        for record in &self.recv()? {
-            if let TlsRecord::ApplicationData(_, _) = record {
-                records.push(self.keyman.decrypt_record(record)?);
+    fn handle_handshake_from_server(&mut self, hs: Handshake) -> Result<()> {
+        self.keyman.handle_handshake_record(hs.clone());
+        self.state = self.handshake_state_transition(hs.clone())?;
+
+        Ok(())
+    }
+
+    fn handle_record_from_server(&mut self, record: TlsRecord, encrypted: bool) -> Result<Vec<u8>> {
+        let mut ret = vec![];
+        match &record {
+            TlsRecord::Handshake(hs, _) => self.handle_handshake_from_server(hs.clone())?,
+            TlsRecord::ChangeCipherSpec(_, _) => {}
+            TlsRecord::ApplicationData(data, _) => {
+                if encrypted {
+                    assert!(self.state.can_encrypt());
+                    let decrypted = self.keyman.decrypt_record(&record)?;
+                    self.handle_record_from_server(decrypted, false)?;
+                } else {
+                    ret.push(data.clone())
+                }
+            }
+            TlsRecord::Alert(al, _) => {
+                println!(
+                    "[-] Alert: (Level: {:?}, Description: {:?})",
+                    al.level, al.description
+                );
+                panic!();
             }
         }
 
-        for record in records {
-            if let TlsRecord::ApplicationData(data, _) = record {
-                res.push(data.clone());
-            }
-        }
-
-        Ok(res.concat())
+        Ok(ret.concat())
     }
 }
 
 impl<T: CryptoRng + RngCore> Drop for Client<T> {
     fn drop(&mut self) {
-        let _ = self.send_record_encrypted(TlsRecord::Alert(
+        let _ = self.send_record(TlsRecord::Alert(
             Alert {
                 level: AlertLevel::Fatal,
                 description: AlertDescription::CloseNotify,

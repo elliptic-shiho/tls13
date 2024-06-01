@@ -81,9 +81,6 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
 
     pub fn set_cipher_suite(&mut self, cipher_suite: CipherSuite) {
         self.cipher_suite = Some(cipher_suite);
-        if self.early_secret.is_none() && self.psk.is_none() {
-            self.set_psk(self.zero_vector());
-        }
         self.update_early_secret();
     }
 
@@ -212,6 +209,9 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
                     Some(self.derive_secret(&master_secret, "s ap traffic"));
                 self.finished_verify_data = Some(verify_data);
             }
+            Handshake::NewSessionTicket(_) => {
+                // ignore
+            }
             x => {
                 dbg!(&x);
             }
@@ -293,9 +293,15 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
 
     // [RFC8446, p.93] Section 7.1 "Key Schedule"
     fn update_early_secret(&mut self) {
+        let zero = self.zero_vector();
+        let psk = if let Some(psk) = self.psk.as_ref() {
+            psk
+        } else {
+            &zero
+        };
         self.early_secret = Some(
             self.get_ciphersuite()
-                .hkdf_extract(&self.zero_vector(), self.psk.as_ref().unwrap()),
+                .hkdf_extract(&self.zero_vector(), psk),
         );
     }
 

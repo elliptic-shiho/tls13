@@ -212,19 +212,16 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
 
     pub fn encrypt_record(&mut self, record: &TlsRecord) -> TlsRecord {
         let inner_plaintext = record.unparse_inner_plaintext();
-        let nonce = record.get_nonce();
         let aad = [
             vec![23, 3, 3],
             ((inner_plaintext.len() + self.get_ciphersuite().tag_length()) as u16).to_tls_vec(),
         ]
         .concat();
 
-        let (key, iv) = self.gen_key_and_iv(self.client_traffic_secret.as_ref().unwrap());
-
-        let mut nonce = [vec![0; iv.len() - nonce.len()], nonce.to_vec()].concat();
-        for i in 0..nonce.len() {
-            nonce[i] ^= iv[i];
-        }
+        let (key, nonce) = self.gen_key_and_nonce(
+            self.client_traffic_secret.as_ref().unwrap(),
+            record.get_sequence_number(),
+        );
 
         let encrypted = self
             .get_ciphersuite()
@@ -236,14 +233,11 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
     pub fn decrypt_record(&mut self, record: &TlsRecord) -> Result<TlsRecord> {
         assert!(matches!(record, TlsRecord::ApplicationData(_, _)));
         if let TlsRecord::ApplicationData(encrypted, _) = record {
-            let nonce = record.get_nonce();
             let aad = record.get_additional_data();
-            let (key, iv) = self.gen_key_and_iv(self.server_traffic_secret.as_ref().unwrap());
-
-            let mut nonce = [vec![0; iv.len() - nonce.len()], nonce.to_vec()].concat();
-            for i in 0..nonce.len() {
-                nonce[i] ^= iv[i];
-            }
+            let (key, nonce) = self.gen_key_and_nonce(
+                self.server_traffic_secret.as_ref().unwrap(),
+                record.get_sequence_number(),
+            );
 
             let decrypted = self
                 .get_ciphersuite()
@@ -268,12 +262,18 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
     }
 
     // [RFC8446] Section 7.3 "Traffic Key Calculation"
-    fn gen_key_and_iv(&self, secret: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    fn gen_key_and_nonce(&self, secret: &[u8], seq: u64) -> (Vec<u8>, Vec<u8>) {
         let cs = self.get_ciphersuite();
         let key = cs.hkdf_expand_label(secret, "key", &[], cs.key_length());
         let iv = cs.hkdf_expand_label(secret, "iv", &[], cs.iv_length());
 
-        (key, iv)
+        let nonce = seq.to_be_bytes();
+        let mut nonce = [vec![0; iv.len() - nonce.len()], nonce.to_vec()].concat();
+        for i in 0..nonce.len() {
+            nonce[i] ^= iv[i];
+        }
+
+        (key, nonce)
     }
 
     // [RFC8446, p.93] Section 7.1 "Key Schedule"

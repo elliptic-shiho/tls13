@@ -155,10 +155,6 @@ impl TlsRecord {
         [tls_vec[5..].to_vec(), vec![tls_vec[0]]].concat()
     }
 
-    pub fn get_nonce(&self) -> Vec<u8> {
-        self.get_sequence_number().to_be_bytes().to_vec()
-    }
-
     pub fn get_additional_data(&self) -> Vec<u8> {
         self.to_tls_vec()[..5].to_vec()
     }

@@ -2,7 +2,7 @@ use crate::tls::{impl_from_tls, impl_to_tls, FromTlsVec, ToTlsVec};
 use crate::Result;
 
 use aes_gcm::aead::{Aead, KeyInit, Payload};
-use aes_gcm::{Aes128Gcm, Key, Nonce};
+use aes_gcm::{Aes128Gcm, Aes256Gcm, Key, Nonce};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use num_derive::{FromPrimitive, ToPrimitive};
@@ -39,7 +39,7 @@ impl_to_tls! {
 impl CipherSuite {
     pub fn hash_length(&self) -> usize {
         match self {
-            CipherSuite::TLS_AES_256_GCM_SHA384 => 48,
+            Self::TLS_AES_256_GCM_SHA384 => 48,
             _ => 32,
         }
     }
@@ -47,6 +47,7 @@ impl CipherSuite {
     pub fn iv_length(&self) -> usize {
         match self {
             Self::TLS_AES_128_GCM_SHA256 => 12,
+            Self::TLS_AES_256_GCM_SHA384 => 12,
             _ => todo!(),
         }
     }
@@ -54,6 +55,7 @@ impl CipherSuite {
     pub fn key_length(&self) -> usize {
         match self {
             Self::TLS_AES_128_GCM_SHA256 => 16,
+            Self::TLS_AES_256_GCM_SHA384 => 32,
             _ => todo!(),
         }
     }
@@ -61,6 +63,7 @@ impl CipherSuite {
     pub fn tag_length(&self) -> usize {
         match self {
             Self::TLS_AES_128_GCM_SHA256 => 16,
+            Self::TLS_AES_256_GCM_SHA384 => 16,
             _ => todo!(),
         }
     }
@@ -77,6 +80,16 @@ impl CipherSuite {
 
                 cipher.encrypt(Nonce::from_slice(nonce), payload).unwrap()
             }
+            Self::TLS_AES_256_GCM_SHA384 => {
+                let key = Key::<Aes256Gcm>::from_slice(key);
+                let cipher = Aes256Gcm::new(key);
+                let payload = Payload {
+                    msg: plaintext,
+                    aad,
+                };
+
+                cipher.encrypt(Nonce::from_slice(nonce), payload).unwrap()
+            }
             _ => todo!(),
         }
     }
@@ -86,6 +99,16 @@ impl CipherSuite {
             Self::TLS_AES_128_GCM_SHA256 => {
                 let key = Key::<Aes128Gcm>::from_slice(key);
                 let cipher = Aes128Gcm::new(key);
+                let payload = Payload {
+                    msg: ciphertext,
+                    aad,
+                };
+
+                cipher.decrypt(Nonce::from_slice(nonce), payload).unwrap()
+            }
+            Self::TLS_AES_256_GCM_SHA384 => {
+                let key = Key::<Aes256Gcm>::from_slice(key);
+                let cipher = Aes256Gcm::new(key);
                 let payload = Payload {
                     msg: ciphertext,
                     aad,

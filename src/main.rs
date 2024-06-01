@@ -10,5 +10,9 @@ fn main() -> Result<()> {
 
     client.handshake()?;
     client.send_tls_message(b"Hello, World!\n")?;
+    println!(
+        "[+] Response = {:?}",
+        String::from_utf8_lossy(&client.recv_tls_message()?)
+    );
     Ok(())
 }

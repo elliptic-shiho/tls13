@@ -1,12 +1,11 @@
 use crate::tls::client::TlsKeyManager;
 use crate::tls::extension::descriptor::{
     KeyShareDescriptor, KeyShareEntry, NamedGroup, ServerName, ServerNameDescriptor,
-    SignatureAlgorithmsDescriptor, SignatureScheme, SupportedGroupsDescriptor,
-    SupportedVersionsDescriptor,
+    SignatureAlgorithmsDescriptor, SupportedGroupsDescriptor, SupportedVersionsDescriptor,
 };
 use crate::tls::handshake::{ClientHello, Finished, Handshake};
 use crate::tls::protocol::{Alert, AlertDescription, AlertLevel, TlsRecord};
-use crate::tls::{CipherSuite, Extension, ToTlsVec};
+use crate::tls::{CipherSuite, Extension, SignatureScheme, ToTlsVec};
 use crate::Result;
 use hex_literal::hex;
 use rand::prelude::*;
@@ -124,6 +123,7 @@ impl<T: CryptoRng + RngCore> Client<T> {
             if len < N {
                 break;
             }
+            std::thread::sleep(std::time::Duration::from_millis(5))
         }
 
         Ok(res)
@@ -136,9 +136,6 @@ impl<T: CryptoRng + RngCore> Client<T> {
         while !v.is_empty() {
             let v2 = v.clone();
             let (rec, t) = TlsRecord::parse(&v, self.sequence_number_server)?;
-            if matches!(rec, TlsRecord::ApplicationData(_, _)) {
-                self.sequence_number_server += 1;
-            }
             let t2 = rec.to_tls_vec();
             if t2 != v2[..t2.len()] {
                 dbg!(&t2);
@@ -146,6 +143,17 @@ impl<T: CryptoRng + RngCore> Client<T> {
                 dbg!(&rec);
                 panic!();
             }
+            let rec = if matches!(rec, TlsRecord::ApplicationData(_, _)) {
+                self.sequence_number_server += 1;
+
+                if self.state.can_encrypt() {
+                    self.keyman.decrypt_record(&rec)?
+                } else {
+                    rec
+                }
+            } else {
+                rec
+            };
             records.push(rec);
             v = t.to_vec();
         }
@@ -214,7 +222,7 @@ impl<T: CryptoRng + RngCore> Client<T> {
                 let hs = Handshake::Finished(Finished {
                     verify_data: self.keyman.get_verify_data(),
                 });
-                // Client's Finished record must be sent before key-rotation
+                // Client's Finished record must be sent before key rotation
                 // so handle_handshake_record_client is placed at after the send_record
                 self.send_record(TlsRecord::Handshake(hs.clone(), seq))?;
                 self.keyman.handle_handshake_record_client(hs.clone());
@@ -240,7 +248,11 @@ impl<T: CryptoRng + RngCore> Client<T> {
     fn create_client_hello(&mut self) -> ClientHello {
         ClientHello::new(
             self.keyman.gen_random_bytes(32),
-            vec![CipherSuite::TLS_CHACHA20_POLY1305_SHA256],
+            vec![
+                CipherSuite::TLS_AES_128_GCM_SHA256,
+                CipherSuite::TLS_AES_256_GCM_SHA384,
+                CipherSuite::TLS_CHACHA20_POLY1305_SHA256,
+            ],
             vec![
                 Extension::ServerName(ServerNameDescriptor {
                     server_names: vec![ServerName::HostName(self.host.clone())],
@@ -270,17 +282,13 @@ impl<T: CryptoRng + RngCore> Client<T> {
         ret
     }
 
-    fn handle_handshake_from_server(&mut self, hs: Handshake) -> Result<()> {
-        self.keyman.handle_handshake_record(hs.clone());
-        self.state = self.handshake_state_transition(hs.clone())?;
-
-        Ok(())
-    }
-
     fn handle_record_from_server(&mut self, record: TlsRecord, encrypted: bool) -> Result<Vec<u8>> {
         let mut ret = vec![];
         match &record {
-            TlsRecord::Handshake(hs, _) => self.handle_handshake_from_server(hs.clone())?,
+            TlsRecord::Handshake(hs, _) => {
+                self.keyman.handle_handshake_record(hs.clone());
+                self.state = self.handshake_state_transition(hs.clone())?;
+            }
             TlsRecord::ChangeCipherSpec(_, _) => {}
             TlsRecord::ApplicationData(data, _) => {
                 if encrypted {

@@ -1,7 +1,6 @@
-use crate::tls::extension::descriptor::SignatureScheme;
 use crate::tls::{
     impl_from_tls, impl_to_tls, read_tls_vec_as_vector, write_tls_vec_as_vector, FromTlsVec,
-    ToTlsVec,
+    SignatureScheme, ToTlsVec,
 };
 use crate::Result;
 

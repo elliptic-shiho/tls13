@@ -103,6 +103,7 @@ impl TlsRecord {
         let (_legacy_record_version, v) = u16::from_tls_vec(v)?;
         let (length, v) = u16::from_tls_vec(v)?;
         assert!((length as i32) < (256 + (1 << 14)));
+        assert!(v.len() >= length as usize);
         Ok(match ctype {
             ContentType::Handshake => {
                 let (hs, v) = Handshake::from_tls_vec(v)?;

@@ -9,7 +9,7 @@ mod protocol;
 mod util;
 
 pub use client::Client;
-pub use crypto::CipherSuite;
+pub use crypto::{CipherSuite, SignatureScheme};
 pub use error::Error;
 pub use extension::{Extension, ExtensionSelector};
 pub(crate) use macro_defs::{impl_from_tls, impl_from_tls_with_selector, impl_to_tls};

@@ -6,6 +6,6 @@ mod supported_versions;
 
 pub use key_share::{KeyShareDescriptor, KeyShareEntry};
 pub use server_name::{ServerName, ServerNameDescriptor};
-pub use signature_algorithms::{SignatureAlgorithmsDescriptor, SignatureScheme};
+pub use signature_algorithms::SignatureAlgorithmsDescriptor;
 pub use supported_groups::{NamedGroup, SupportedGroupsDescriptor};
 pub use supported_versions::SupportedVersionsDescriptor;

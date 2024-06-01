@@ -1,5 +1,6 @@
 use crate::tls::extension::descriptor::KeyShareDescriptor;
-use crate::tls::handshake::{Certificate, Handshake};
+use crate::tls::handshake::Certificate;
+use crate::tls::protocol::Handshake;
 use crate::tls::{CipherSuite, Extension, TlsRecord, ToTlsVec};
 use crate::Result;
 use p256::ecdh::{EphemeralSecret, SharedSecret};
@@ -82,17 +83,7 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
 
     pub fn handle_handshake_record_client(&mut self, hs: Handshake) {
         if matches!(hs, Handshake::Finished(_)) {
-            let cs = self.get_ciphersuite();
-            let master_secret = cs.hkdf_extract(
-                &cs.derive_secret(self.handshake_secret.as_ref().unwrap(), "derived", &[]),
-                &self.zero_vector(),
-            );
-
-            let cts = cs.derive_secret(&master_secret, "c ap traffic", &self.current_context);
-            let sts = cs.derive_secret(&master_secret, "s ap traffic", &self.current_context);
-
-            self.client_traffic_secret = cts;
-            self.server_traffic_secret = sts;
+            self.update_application_secret();
         }
         self.current_context = [self.current_context.clone(), hs.to_tls_vec()].concat();
     }
@@ -148,6 +139,11 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
                     .clone();
 
                 let x509_cert = X509Certificate::from_der(&raw_cert).unwrap().1;
+                println!("[+] Issuer: {}", x509_cert.issuer);
+                println!(
+                    "[+] Signature Algorithm: {}",
+                    x509_cert.signature_algorithm.algorithm
+                );
                 match x509_cert.public_key().parsed().unwrap() {
                     x509_parser::public_key::PublicKey::EC(point) => {
                         if !cert_verify
@@ -243,6 +239,12 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
         self.finished_verify_data.as_ref().unwrap().clone()
     }
 
+    pub fn compute_psk_binder(&self, truncated_client_hello: &[u8]) -> Vec<u8> {
+        let cs = self.get_ciphersuite();
+        let hash = cs.hash(truncated_client_hello.to_vec());
+        cs.hmac(self.early_secret.as_ref().unwrap(), &hash)
+    }
+
     // [RFC8446] Section 7.3 "Traffic Key Calculation"
     fn gen_key_and_nonce(&self, secret: &[u8], seq: u64) -> (Vec<u8>, Vec<u8>) {
         let cs = self.get_ciphersuite();
@@ -289,6 +291,21 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
         self.client_traffic_secret = cts;
         self.server_traffic_secret = sts;
         self.handshake_secret = Some(hs_secret);
+    }
+
+    // [RFC8446, p.93] Section 7.1 "Key Schedule"
+    fn update_application_secret(&mut self) {
+        let cs = self.get_ciphersuite();
+        let master_secret = cs.hkdf_extract(
+            &cs.derive_secret(self.handshake_secret.as_ref().unwrap(), "derived", &[]),
+            &self.zero_vector(),
+        );
+
+        let cts = cs.derive_secret(&master_secret, "c ap traffic", &self.current_context);
+        let sts = cs.derive_secret(&master_secret, "s ap traffic", &self.current_context);
+
+        self.client_traffic_secret = cts;
+        self.server_traffic_secret = sts;
     }
 
     // [RFC8446, p.63] Section 4.4.1 "The Transcript Hash"

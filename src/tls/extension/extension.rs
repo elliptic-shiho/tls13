@@ -1,7 +1,4 @@
-use crate::tls::extension::descriptor::{
-    KeyShareDescriptor, ServerNameDescriptor, SignatureAlgorithmsDescriptor,
-    SupportedGroupsDescriptor, SupportedVersionsDescriptor,
-};
+use crate::tls::extension::descriptor::*;
 use crate::tls::{
     impl_from_tls_with_selector, impl_to_tls, ExtensionSelector, FromTlsVec,
     FromTlsVecWithSelector, ToTlsVec,
@@ -22,11 +19,11 @@ pub enum Extension {
     ClientCertificateType,
     ServerCertificateType,
     Padding,
-    PreSharedKey,
+    PreSharedKey(PreSharedKeyDescriptor),
     EarlyData,
     SupportedVersions(SupportedVersionsDescriptor),
     Cookie,
-    PskKeyExchangeModes,
+    PskKeyExchangeModes(PskKeyExchangeModesDescriptor),
     CertificateAuthorities,
     OidFilters,
     PostHandshakeAuth,
@@ -37,27 +34,22 @@ pub enum Extension {
 
 impl_to_tls! {
     Extension(self) {
+        macro_rules! impl_arm {
+            ($name:ident, $n:literal) => {
+                {
+                    let v = $name.to_tls_vec();
+                    [($n as u16).to_tls_vec(), (v.len() as u16).to_tls_vec(), v].concat()
+                }
+            }
+        }
         match self {
-            Self::ServerName(desc) => {
-                let v = desc.to_tls_vec();
-                [0u16.to_tls_vec(), (v.len() as u16).to_tls_vec(), v].concat()
-            }
-            Self::SignatureAlgorithms(desc) => {
-                let v = desc.to_tls_vec();
-                [13u16.to_tls_vec(), (v.len() as u16).to_tls_vec(), v].concat()
-            }
-            Self::SupportedVersions(desc) => {
-                let v = desc.to_tls_vec();
-                [43u16.to_tls_vec(), (v.len() as u16).to_tls_vec(), v].concat()
-            }
-            Self::SupportedGroups(desc) => {
-                let v = desc.to_tls_vec();
-                [10u16.to_tls_vec(), (v.len() as u16).to_tls_vec(), v].concat()
-            }
-            Self::KeyShare(desc) => {
-                let v = desc.to_tls_vec();
-                [51u16.to_tls_vec(), (v.len() as u16).to_tls_vec(), v].concat()
-            }
+            Self::ServerName(desc) => impl_arm!(desc, 0),
+            Self::SignatureAlgorithms(desc) => impl_arm!(desc, 13),
+            Self::SupportedVersions(desc) => impl_arm!(desc, 43),
+            Self::SupportedGroups(desc) => impl_arm!(desc, 10),
+            Self::PreSharedKey(desc) => impl_arm!(desc, 41),
+            Self::PskKeyExchangeModes(desc) => impl_arm!(desc, 45),
+            Self::KeyShare(desc) => impl_arm!(desc, 51),
             _ => unimplemented!(),
         }
     }
@@ -68,27 +60,28 @@ impl_from_tls_with_selector! {
         let (ext_type, v) = u16::from_tls_vec(v)?;
         let (len, v) = u16::from_tls_vec(v)?;
         let (extension_data, v) = (&v[..(len as usize)], &v[(len as usize)..]);
+        macro_rules! impl_arm {
+            ($name:tt, $descriptor:tt) => {
+                {
+                let (desc, _) = $descriptor::from_tls_vec(extension_data)?;
+                (Self::$name(desc), v)
+                }
+            };
+            ($name:tt, $descriptor:tt, $selector:ident) => {
+                {
+                let (desc, _) = $descriptor::from_tls_vec(extension_data, $selector)?;
+                (Self::$name(desc), v)
+                }
+            };
+        }
         Ok(match ext_type {
-            0u16 => {
-                let (desc, _) = ServerNameDescriptor::from_tls_vec(extension_data)?;
-                (Self::ServerName(desc), v)
-            }
-            13u16 => {
-                let (desc, v) = SignatureAlgorithmsDescriptor::from_tls_vec(extension_data)?;
-                (Self::SignatureAlgorithms(desc), v)
-            }
-            43u16 => {
-                let (desc, _) = SupportedVersionsDescriptor::from_tls_vec(extension_data, selector)?;
-                (Self::SupportedVersions(desc), v)
-            }
-            10u16 => {
-                let (desc, _) = SupportedGroupsDescriptor::from_tls_vec(extension_data)?;
-                (Self::SupportedGroups(desc), v)
-            }
-            51u16 => {
-                let (desc, _) = KeyShareDescriptor::from_tls_vec(extension_data, selector)?;
-                (Self::KeyShare(desc), v)
-            }
+            0u16 => impl_arm!(ServerName, ServerNameDescriptor),
+            13u16 => impl_arm!(SignatureAlgorithms, SignatureAlgorithmsDescriptor),
+            43u16 => impl_arm!(SupportedVersions, SupportedVersionsDescriptor, selector),
+            10u16 => impl_arm!(SupportedGroups, SupportedGroupsDescriptor),
+            41u16 => impl_arm!(PreSharedKey, PreSharedKeyDescriptor, selector),
+            45u16 => impl_arm!(PskKeyExchangeModes, PskKeyExchangeModesDescriptor),
+            51u16 => impl_arm!(KeyShare, KeyShareDescriptor, selector),
             _ => {
                 dbg!(ext_type);
                 unimplemented!();

@@ -1,10 +1,7 @@
 use crate::tls::client::TlsKeyManager;
-use crate::tls::extension::descriptor::{
-    KeyShareDescriptor, KeyShareEntry, NamedGroup, ServerName, ServerNameDescriptor,
-    SignatureAlgorithmsDescriptor, SupportedGroupsDescriptor, SupportedVersionsDescriptor,
-};
-use crate::tls::handshake::{ClientHello, Finished, Handshake};
-use crate::tls::protocol::{Alert, AlertDescription, AlertLevel, TlsRecord};
+use crate::tls::extension::descriptor::*;
+use crate::tls::handshake::{ClientHello, Finished};
+use crate::tls::protocol::{Alert, AlertDescription, AlertLevel, Handshake, TlsRecord};
 use crate::tls::{CipherSuite, Extension, SignatureScheme, ToTlsVec};
 use crate::Result;
 use hex_literal::hex;
@@ -168,7 +165,7 @@ impl<T: CryptoRng + RngCore> Client<T> {
                 let mut found_psk = false;
                 for extension in &ch.extensions {
                     found_early_data |= matches!(extension, Extension::EarlyData);
-                    found_psk |= matches!(extension, Extension::PreSharedKey);
+                    found_psk |= matches!(extension, Extension::PreSharedKey(_));
                 }
                 if found_early_data && found_psk {
                     ClientState::WaitFinished
@@ -246,6 +243,27 @@ impl<T: CryptoRng + RngCore> Client<T> {
     }
 
     fn create_client_hello(&mut self) -> ClientHello {
+        let extensions = vec![
+            Extension::ServerName(ServerNameDescriptor {
+                server_names: vec![ServerName::HostName(self.host.clone())],
+            }),
+            Extension::SignatureAlgorithms(SignatureAlgorithmsDescriptor {
+                supported_signature_algorithms: vec![
+                    SignatureScheme::ecdsa_secp256r1_sha256,
+                    SignatureScheme::ecdsa_secp256r1_sha384,
+                    SignatureScheme::ecdsa_secp256r1_sha512,
+                    // SignatureScheme::rsa_pkcs1_sha256,
+                ],
+            }),
+            Extension::SupportedVersions(SupportedVersionsDescriptor::ClientHello(vec![0x0304])),
+            Extension::SupportedGroups(SupportedGroupsDescriptor {
+                named_group_list: vec![NamedGroup::secp256r1],
+            }),
+            Extension::KeyShare(KeyShareDescriptor::ClientHello(vec![KeyShareEntry {
+                group: NamedGroup::secp256r1,
+                key_exchange: self.keyman.gen_client_pubkey().to_bytes().to_vec(),
+            }])),
+        ];
         ClientHello::new(
             self.keyman.gen_random_bytes(32),
             vec![
@@ -253,24 +271,7 @@ impl<T: CryptoRng + RngCore> Client<T> {
                 CipherSuite::TLS_AES_256_GCM_SHA384,
                 CipherSuite::TLS_CHACHA20_POLY1305_SHA256,
             ],
-            vec![
-                Extension::ServerName(ServerNameDescriptor {
-                    server_names: vec![ServerName::HostName(self.host.clone())],
-                }),
-                Extension::SignatureAlgorithms(SignatureAlgorithmsDescriptor {
-                    supported_signature_algorithms: vec![SignatureScheme::ecdsa_secp256r1_sha256],
-                }),
-                Extension::SupportedVersions(SupportedVersionsDescriptor::ClientHello(vec![
-                    0x0304,
-                ])),
-                Extension::SupportedGroups(SupportedGroupsDescriptor {
-                    named_group_list: vec![NamedGroup::secp256r1],
-                }),
-                Extension::KeyShare(KeyShareDescriptor::ClientHello(vec![KeyShareEntry {
-                    group: NamedGroup::secp256r1,
-                    key_exchange: self.keyman.gen_client_pubkey().to_bytes().to_vec(),
-                }])),
-            ],
+            extensions,
         )
     }
 

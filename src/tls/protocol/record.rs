@@ -1,5 +1,4 @@
-use crate::tls::handshake::Handshake;
-use crate::tls::protocol::Alert;
+use crate::tls::protocol::{Alert, Handshake};
 use crate::tls::{impl_from_tls, impl_to_tls, write_tls_vec_as_vector, FromTlsVec, ToTlsVec};
 use crate::Result;
 

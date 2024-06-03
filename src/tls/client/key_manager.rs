@@ -1,4 +1,4 @@
-use crate::tls::extension::descriptor::KeyShareDescriptor;
+use crate::tls::extension::descriptor::{KeyShareDescriptor, PreSharedKeyDescriptor};
 use crate::tls::handshake::Certificate;
 use crate::tls::protocol::Handshake;
 use crate::tls::{CipherSuite, Extension, TlsRecord, ToTlsVec};
@@ -21,7 +21,6 @@ pub struct TlsKeyManager<T: CryptoRng + RngCore> {
     server_cert: Option<Certificate>,
     client_traffic_secret: Vec<u8>,
     server_traffic_secret: Vec<u8>,
-    finished_verify_data: Option<Vec<u8>>,
     context: Vec<u8>,
 }
 
@@ -46,7 +45,6 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
             server_cert: None,
             client_traffic_secret: vec![],
             server_traffic_secret: vec![],
-            finished_verify_data: None,
             context: vec![],
         }
     }
@@ -79,6 +77,13 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
 
     pub fn set_psk(&mut self, psk: Vec<u8>) {
         self.psk = Some(psk);
+        if self.cipher_suite.is_some() {
+            self.update_early_secret();
+        }
+    }
+
+    pub fn is_set_psk(&self) -> bool {
+        self.psk.is_some()
     }
 
     pub fn handle_handshake_record_client(&mut self, hs: Handshake) {
@@ -94,13 +99,21 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
             Handshake::ServerHello(sh) => {
                 self.set_cipher_suite(sh.cipher_suite.clone());
                 for ext in &sh.extensions {
-                    if let Extension::KeyShare(desc) = ext {
-                        if let KeyShareDescriptor::ServerHello(entry) = desc {
-                            self.set_server_pubkey(entry.key_exchange.clone());
-                        } else {
-                            dbg!(&sh);
-                            panic!();
+                    match &ext {
+                        Extension::KeyShare(desc) => {
+                            if let KeyShareDescriptor::ServerHello(entry) = desc {
+                                self.set_server_pubkey(entry.key_exchange.clone());
+                            } else {
+                                dbg!(&sh);
+                                panic!();
+                            }
                         }
+                        Extension::PreSharedKey(PreSharedKeyDescriptor::ServerHello(
+                            identity_index,
+                        )) => {
+                            println!("[+] Server has been selected the PSK[{}]", identity_index);
+                        }
+                        _ => {}
                     }
                 }
                 self.update_handshake_secret();
@@ -109,6 +122,7 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
                 if !ee.is_empty() {
                     dbg!(ee);
                 }
+                self.context.clone_from(&self.current_context);
             }
             Handshake::Certificate(cert) => {
                 match self.cert_type {
@@ -159,28 +173,12 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
             }
             Handshake::Finished(fin) => {
                 // [RFC8446] Section 4.4.4 "Finished"
-                let cs = self.get_ciphersuite();
-                let transcript_hash = cs.hash(self.context.clone());
-                let server_finished_key = cs.hkdf_expand_label(
-                    &self.server_traffic_secret,
-                    "finished",
-                    &[],
-                    cs.hash_length(),
-                );
-
-                if cs.hmac(&server_finished_key, &transcript_hash) != fin.verify_data {
+                if self.compute_finished(&self.server_traffic_secret, &self.context)
+                    != fin.verify_data
+                {
                     panic!("Failed to verify the server finished hmac");
                 }
 
-                let client_finished_key = cs.hkdf_expand_label(
-                    &self.client_traffic_secret,
-                    "finished",
-                    &[],
-                    cs.hash_length(),
-                );
-
-                let verify_data = cs.hmac(&client_finished_key, &self.transcript_hash());
-                self.finished_verify_data = Some(verify_data);
                 self.context.clone_from(&self.current_context);
             }
             Handshake::NewSessionTicket(_) => {
@@ -236,13 +234,26 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
     }
 
     pub fn get_verify_data(&self) -> Vec<u8> {
-        self.finished_verify_data.as_ref().unwrap().clone()
+        self.compute_finished(&self.client_traffic_secret, &self.context)
     }
 
     pub fn compute_psk_binder(&self, truncated_client_hello: &[u8]) -> Vec<u8> {
+        let binder_key = self.get_ciphersuite().derive_secret(
+            self.early_secret.as_ref().unwrap(),
+            "ext binder",
+            &[],
+        );
+
+        self.compute_finished(&binder_key, truncated_client_hello)
+    }
+
+    fn compute_finished(&self, base_key: &[u8], context: &[u8]) -> Vec<u8> {
         let cs = self.get_ciphersuite();
-        let hash = cs.hash(truncated_client_hello.to_vec());
-        cs.hmac(self.early_secret.as_ref().unwrap(), &hash)
+        let transcript_hash = cs.hash(context.to_vec());
+
+        let finished_key = cs.hkdf_expand_label(base_key, "finished", &[], cs.hash_length());
+
+        cs.hmac(&finished_key, &transcript_hash)
     }
 
     // [RFC8446] Section 7.3 "Traffic Key Calculation"
@@ -268,10 +279,7 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
         } else {
             &zero
         };
-        self.early_secret = Some(
-            self.get_ciphersuite()
-                .hkdf_extract(&self.zero_vector(), psk),
-        );
+        self.early_secret = Some(self.get_ciphersuite().hkdf_extract(&zero, psk));
     }
 
     // [RFC8446, p.93] Section 7.1 "Key Schedule"
@@ -306,11 +314,6 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
 
         self.client_traffic_secret = cts;
         self.server_traffic_secret = sts;
-    }
-
-    // [RFC8446, p.63] Section 4.4.1 "The Transcript Hash"
-    fn transcript_hash(&self) -> Vec<u8> {
-        self.get_ciphersuite().hash(self.current_context.clone())
     }
 
     fn zero_vector(&self) -> Vec<u8> {

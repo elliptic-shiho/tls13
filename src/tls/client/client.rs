@@ -242,7 +242,61 @@ impl<T: CryptoRng + RngCore> Client<T> {
         })
     }
 
+    fn create_client_hello_psk(&mut self) -> ClientHello {
+        let cs = CipherSuite::TLS_AES_128_GCM_SHA256;
+        let rand = self.keyman.gen_random_bytes(32);
+        self.keyman.set_cipher_suite(cs.clone());
+
+        let mut extensions = vec![
+            Extension::ServerName(ServerNameDescriptor {
+                server_names: vec![ServerName::HostName(self.host.clone())],
+            }),
+            Extension::SignatureAlgorithms(SignatureAlgorithmsDescriptor {
+                supported_signature_algorithms: vec![SignatureScheme::ecdsa_secp256r1_sha256],
+            }),
+            Extension::SupportedVersions(SupportedVersionsDescriptor::ClientHello(vec![0x0304])),
+            Extension::PskKeyExchangeModes(PskKeyExchangeModesDescriptor {
+                ke_modes: vec![PskKeyExchangeMode::PskDheKe],
+            }),
+            Extension::SupportedGroups(SupportedGroupsDescriptor {
+                named_group_list: vec![NamedGroup::secp256r1],
+            }),
+            Extension::KeyShare(KeyShareDescriptor::ClientHello(vec![KeyShareEntry {
+                group: NamedGroup::secp256r1,
+                key_exchange: self.keyman.gen_client_pubkey().to_bytes().to_vec(),
+            }])),
+            Extension::PreSharedKey(PreSharedKeyDescriptor::ClientHello(OfferedPsks {
+                identities: vec![PskIdentity {
+                    identity: b"Client_identity".to_vec(),
+                    obfuscated_ticket_age: 0,
+                }],
+                binders: vec![vec![0u8; cs.hash_length()]],
+            })),
+        ];
+        let ch = Handshake::ClientHello(ClientHello::new(
+            rand.clone(),
+            vec![cs.clone()],
+            extensions.clone(),
+        ))
+        .to_tls_vec();
+
+        let binder = self
+            .keyman
+            .compute_psk_binder(&ch[..(ch.len() - (cs.hash_length() + 3))]);
+        let last_index = extensions.len() - 1;
+        if let Extension::PreSharedKey(PreSharedKeyDescriptor::ClientHello(op)) =
+            &mut extensions[last_index]
+        {
+            op.binders[0] = binder;
+        }
+
+        ClientHello::new(rand, vec![cs], extensions)
+    }
+
     fn create_client_hello(&mut self) -> ClientHello {
+        if self.keyman.is_set_psk() {
+            return self.create_client_hello_psk();
+        }
         let extensions = vec![
             Extension::ServerName(ServerNameDescriptor {
                 server_names: vec![ServerName::HostName(self.host.clone())],

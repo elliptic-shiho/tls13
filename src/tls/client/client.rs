@@ -16,7 +16,7 @@ pub struct Client<T: CryptoRng + RngCore> {
     sequence_number_client: u64,
     sequence_number_server: u64,
     state: ClientState,
-    psk: Option<Vec<u8>>,
+    psk_identity: Option<Vec<u8>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -51,13 +51,13 @@ impl<T: CryptoRng + RngCore> Client<T> {
             sequence_number_client: 0,
             sequence_number_server: 0,
             state: ClientState::Start,
-            psk: None,
+            psk_identity: None,
         })
     }
 
-    pub fn set_psk(&mut self, psk: &[u8]) {
+    pub fn set_psk(&mut self, psk: &[u8], psk_identity: &[u8]) {
         self.keyman.set_psk(psk.to_vec());
-        self.psk = Some(psk.to_vec())
+        self.psk_identity = Some(psk_identity.to_vec())
     }
 
     pub fn handshake(&mut self) -> Result<Vec<u8>> {
@@ -135,6 +135,7 @@ impl<T: CryptoRng + RngCore> Client<T> {
             let (rec, t) = TlsRecord::parse(&v, self.sequence_number_server)?;
             let t2 = rec.to_tls_vec();
             if t2 != v2[..t2.len()] {
+                println!("[-] Buggy implementation (to_tls_vec / from_tls_vec)");
                 dbg!(&t2);
                 dbg!(&v2[..t2.len()]);
                 dbg!(&rec);
@@ -196,7 +197,7 @@ impl<T: CryptoRng + RngCore> Client<T> {
                 }
             }
             (&ClientState::WaitEncryptedExtensions, Handshake::EncryptedExtensions(_)) => {
-                if self.psk.is_some() {
+                if self.keyman.is_set_psk() {
                     ClientState::WaitFinished
                 } else {
                     ClientState::WaitCertificateRequest
@@ -267,7 +268,7 @@ impl<T: CryptoRng + RngCore> Client<T> {
             }])),
             Extension::PreSharedKey(PreSharedKeyDescriptor::ClientHello(OfferedPsks {
                 identities: vec![PskIdentity {
-                    identity: b"Client_identity".to_vec(),
+                    identity: self.psk_identity.as_ref().unwrap().to_vec(),
                     obfuscated_ticket_age: 0,
                 }],
                 binders: vec![vec![0u8; cs.hash_length()]],

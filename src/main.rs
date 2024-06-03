@@ -8,7 +8,7 @@ fn main() -> Result<()> {
     let rng = rand::thread_rng();
     let mut client = tls::Client::open("0.0.0.0", 50000, rng)?;
 
-    client.set_psk(b"ABC");
+    client.set_psk(b"ABC", b"Client_identity");
     client.handshake()?;
     client.send_tls_message(b"Hello, World!\n")?;
     println!(

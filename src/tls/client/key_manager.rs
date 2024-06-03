@@ -222,6 +222,7 @@ impl<T: CryptoRng + RngCore> TlsKeyManager<T> {
             let rec = TlsRecord::parse_inner_plaintext(&decrypted)?;
 
             if rec.to_tls_vec()[5..] != decrypted[..(decrypted.len() - 1)] {
+                println!("[-] Buggy implementation (parse_inner_plaintext)");
                 dbg!(&rec);
                 dbg!(&rec.to_tls_vec()[5..]);
                 dbg!(decrypted);
